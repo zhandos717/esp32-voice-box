@@ -71,13 +71,51 @@ func (t *telegram) allowedUsers() map[int64]bool {
 	return set
 }
 
-func (t *telegram) sessionValue() string {
-	return hex.EncodeToString(hmacSHA256([]byte(t.token), []byte("mic-web-session")))
+const sessionTTL = 30 * 24 * time.Hour
+
+// newSession: "<user id>.<expiry unix>.<hmac>", so a cookie carries who it was issued to and when it dies.
+func (t *telegram) newSession(user int64) string {
+	body := strconv.FormatInt(user, 10) + "." + strconv.FormatInt(time.Now().Add(sessionTTL).Unix(), 10)
+	return body + "." + hex.EncodeToString(hmacSHA256([]byte(t.token), []byte("mic-web-session:"+body)))
+}
+
+// sessionUser re-checks the signature, the expiry and that the user is still allowed.
+func (t *telegram) sessionUser(v string) bool {
+	i := strings.LastIndexByte(v, '.')
+	if i < 0 {
+		return false
+	}
+	body, sig := v[:i], v[i+1:]
+	want := hex.EncodeToString(hmacSHA256([]byte(t.token), []byte("mic-web-session:"+body)))
+	if !hmac.Equal([]byte(want), []byte(sig)) {
+		return false
+	}
+	parts := strings.SplitN(body, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	user, err1 := strconv.ParseInt(parts[0], 10, 64)
+	exp, err2 := strconv.ParseInt(parts[1], 10, 64)
+	return err1 == nil && err2 == nil && time.Now().Unix() < exp && t.allowedUsers()[user]
+}
+
+// sameOrigin: state-changing requests must come from the page itself (CSRF).
+func sameOrigin(r *http.Request, site string) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return true
+	}
+	o := r.Header.Get("Origin")
+	if o == "" {
+		o = r.Header.Get("Referer")
+	}
+	u, err := url.Parse(site)
+	return err == nil && o != "" && strings.HasPrefix(o+"/", u.Scheme+"://"+u.Host+"/")
 }
 
 // withAuth guards everything except the page itself and /auth. Without MIC_WEB_URL the page stays local and open, as before.
 func (s *server) withAuth(next http.Handler) http.Handler {
-	if env("MIC_WEB_URL", "") == "" {
+	site := env("MIC_WEB_URL", "")
+	if site == "" {
 		return next
 	}
 	if s.tg == nil {
@@ -92,6 +130,10 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if !sameOrigin(r, site) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		if r.URL.Path == "/auth" {
 			body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
 			id, ok := checkInitData(s.tg.token, string(body), 24*time.Hour)
@@ -100,13 +142,13 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.tg.sessionValue(), Path: "/", MaxAge: 30 * 24 * 3600,
-				HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
+			http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.tg.newSession(id), Path: "/", MaxAge: int(sessionTTL.Seconds()),
+				HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 			w.Write([]byte("ok"))
 			return
 		}
 		c, err := r.Cookie(sessionCookie)
-		if err != nil || !hmac.Equal([]byte(c.Value), []byte(s.tg.sessionValue())) {
+		if err != nil || !s.tg.sessionUser(c.Value) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

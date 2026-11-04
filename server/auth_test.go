@@ -30,3 +30,21 @@ func TestCheckInitData(t *testing.T) {
 		t.Fatal("stale data accepted")
 	}
 }
+
+func TestSession(t *testing.T) {
+	t.Setenv("MIC_WEB_USERS", "42")
+	tg := &telegram{token: "123:abc"}
+	v := tg.newSession(42)
+	if !tg.sessionUser(v) {
+		t.Fatal("own session refused")
+	}
+	if tg.sessionUser(tg.newSession(7)) {
+		t.Fatal("session of a user outside MIC_WEB_USERS accepted")
+	}
+	if tg.sessionUser(v[:len(v)-1] + "0") {
+		t.Fatal("tampered session accepted")
+	}
+	if (&telegram{token: "123:other"}).sessionUser(v) {
+		t.Fatal("session signed with another token accepted")
+	}
+}
