@@ -15,3 +15,5 @@ __pycache__/
 !.env.example
 *.exe~
 *.bak
+
+mic_server-linux*

@@ -3,6 +3,7 @@
 Run it yourself in a terminal: the password is typed here and goes straight to the board, nowhere else.
 
     python set_wifi.py            (the board must be connected by USB, nothing else may use the port)
+    python set_wifi.py --server   (only the server address, port and password; Wi-Fi stays as it is)
 """
 import getpass, socket, sys, time
 
@@ -29,24 +30,31 @@ def local_ip():
 
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
-show = '--show' in sys.argv                      # --show: the password is visible while typing (to catch typos)
+show = '--show' in sys.argv
+server_only = '--server' in sys.argv             # --server: change only the server address, port and password, keep the Wi-Fi settings                      # --show: the password is visible while typing (to catch typos)
 port = args[0] if args else find_port()
 if not port:
     sys.exit('Плата не найдена. Укажите порт: python set_wifi.py COM11')
 print('Плата на', port)
-ssid = input('Имя Wi-Fi (только 2,4 ГГц): ').strip()
-if show:
-    password = input('Пароль Wi-Fi (виден при вводе): ')
-else:
-    password = getpass.getpass('Пароль Wi-Fi (ввод не виден): ')
-print(f'Имя сети: "{ssid}", длина пароля: {len(password)} симв.')
-host = input(f'Адрес этого ПК [{local_ip()}]: ').strip() or local_ip()
+ssid = password = None
+if not server_only:
+    ssid = input('Имя Wi-Fi (только 2,4 ГГц): ').strip()
+    if show:
+        password = input('Пароль Wi-Fi (виден при вводе): ')
+    else:
+        password = getpass.getpass('Пароль Wi-Fi (ввод не виден): ')
+    print(f'Имя сети: "{ssid}", длина пароля: {len(password)} симв.')
+host = input(f'Адрес сервера (ПК или VPS) [{local_ip()}]: ').strip() or local_ip()
 tcp = input('Порт сервера [8800]: ').strip() or '8800'
+token = (input('Пароль сервера MIC_TOKEN (виден при вводе, до 32 символов; пусто = без пароля): ') if show else getpass.getpass('Пароль сервера MIC_TOKEN (ввод не виден, пусто = без пароля): ')).strip()
+if len(token.encode()) > 32:
+    sys.exit('Пароль длиннее 32 байт.')
 
 s = serial.Serial(port, 115200, timeout=1)
 s.dtr = s.rts = False
 time.sleep(0.5)
-for line in (f'SSID:{ssid}', f'PASS:{password}', f'HOST:{host}', f'PORT:{tcp}', 'SAVE'):
+lines = ([] if server_only else [f'SSID:{ssid}', f'PASS:{password}']) + [f'HOST:{host}', f'PORT:{tcp}', f'TOKEN:{token}', 'SAVE']
+for line in lines:
     s.write((line + '\n').encode('utf-8'))
     time.sleep(0.1)
 t0 = time.time()

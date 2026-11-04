@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -184,10 +186,26 @@ func (s *server) playNext(c net.Conn) {
 
 func (s *server) handleConn(c net.Conn) {
 	defer c.Close()
+	if tc, ok := c.(*net.TCPConn); ok { // keepalive: a connection the router has forgotten is noticed in about 30 s
+		tc.SetKeepAliveConfig(net.KeepAliveConfig{Enable: true, Idle: 15 * time.Second, Interval: 5 * time.Second, Count: 3})
+	}
 	c.SetReadDeadline(time.Now().Add(10 * time.Second))
 	hdr := make([]byte, 10)
-	if _, err := io.ReadFull(c, hdr); err != nil || string(hdr[:4]) != "MIC2" {
+	if _, err := io.ReadFull(c, hdr); err != nil || (string(hdr[:4]) != "MIC2" && string(hdr[:4]) != "MIC3") {
 		log.Println("rejected", c.RemoteAddr(), "(bad header, old firmware?)")
+		return
+	}
+	var given []byte // MIC3 carries a 32 byte password after the header
+	if string(hdr[:4]) == "MIC3" {
+		tok := make([]byte, 32)
+		if _, err := io.ReadFull(c, tok); err != nil {
+			return
+		}
+		given = bytes.TrimRight(tok, string([]byte{0}))
+	}
+	if s.token != "" && subtle.ConstantTimeCompare(given, []byte(s.token)) != 1 {
+		log.Println("rejected", c.RemoteAddr(), "(wrong or missing password)")
+		time.Sleep(2 * time.Second) // a guess costs time
 		return
 	}
 	c.SetReadDeadline(time.Time{})
@@ -279,6 +297,7 @@ func (s *server) handleConn(c net.Conn) {
 				s.nextPresses++
 			}
 			s.mu.Unlock()
+		case 9: // "I am alive" while the board is busy (long playback, update); reading it renews the deadline
 		case 6: // the board has played the new-message chime
 			log.Println("board: chime played")
 			s.mu.Lock()

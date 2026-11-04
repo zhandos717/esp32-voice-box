@@ -14,6 +14,8 @@
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
 #include <Update.h>
+#include <lwip/sockets.h>
+#include <lwip/netdb.h>
 #include <freertos/stream_buffer.h>
 
 #include "config.h"
@@ -24,7 +26,7 @@ struct Note { float f0, f1; uint16_t ms; float amp, tau, h2; };
 I2SClass i2s, i2sOut;   // automatic ports: explicit ports 0 and 1 left the speaker silent (see firmware/speaker_mic_test)
 Preferences prefs;
 WiFiClient client;
-String ssid, pass, host;
+String ssid, pass, host, token;
 uint16_t port = 8800;
 bool streaming = false;
 int32_t raw[256];
@@ -52,6 +54,7 @@ void loadConfig() {
   ssid = prefs.getString("ssid", "");
   pass = prefs.getString("pass", "");
   host = prefs.getString("host", "");
+  token = prefs.getString("token", "");
   port = prefs.getUShort("port", 8800);
   prefs.end();
 }
@@ -72,6 +75,14 @@ void sendEvent(uint8_t type) {
   if (!client.connected()) return;
   uint8_t f[3] = {type, 0, 0};
   client.write(f, sizeof(f));
+}
+
+// Frame 9 = "I am alive": sent every 5 s during long blocking work (playing a long message, a firmware update),
+// otherwise the server would take the silence for a lost board
+void alive() {
+  esp_task_wdt_reset();
+  static uint32_t last = 0;
+  if (millis() - last > 5000) { last = millis(); sendEvent(9); }
 }
 
 // Plain text for the server log (frame type 5)
@@ -154,22 +165,25 @@ void sendPreroll() {                       // oldest sample first
 
 // Setup over USB: lines SSID:..., PASS:..., HOST:..., PORT:..., then SAVE
 void handleSerial() {
-  static String line, nSsid, nPass, nHost;
+  static String line, nSsid, nPass, nHost, nToken;
   static uint16_t nPort = 8800;
+  static bool hSsid = false, hPass = false, hHost = false, hPort = false, hToken = false;   // only what was sent is saved
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\r') continue;
     if (c != '\n') { line += c; continue; }
-    if (line.startsWith("SSID:")) nSsid = line.substring(5);
-    else if (line.startsWith("PASS:")) nPass = line.substring(5);
-    else if (line.startsWith("HOST:")) nHost = line.substring(5);
-    else if (line.startsWith("PORT:")) nPort = line.substring(5).toInt();
+    if (line.startsWith("SSID:")) { nSsid = line.substring(5); hSsid = true; }
+    else if (line.startsWith("PASS:")) { nPass = line.substring(5); hPass = true; }
+    else if (line.startsWith("HOST:")) { nHost = line.substring(5); hHost = true; }
+    else if (line.startsWith("PORT:")) { nPort = line.substring(5).toInt(); hPort = true; }
+    else if (line.startsWith("TOKEN:")) { nToken = line.substring(6); hToken = true; }
     else if (line == "SAVE") {
       prefs.begin("mic", false);
-      prefs.putString("ssid", nSsid);
-      prefs.putString("pass", nPass);
-      prefs.putString("host", nHost);
-      prefs.putUShort("port", nPort);
+      if (hSsid) prefs.putString("ssid", nSsid);
+      if (hPass) prefs.putString("pass", nPass);
+      if (hHost) prefs.putString("host", nHost);
+      if (hPort) prefs.putUShort("port", nPort);
+      if (hToken) prefs.putString("token", nToken);
       prefs.end();
       Serial.println("OK saved, rebooting");
       delay(300);
@@ -209,12 +223,24 @@ bool connectServer() {
   if (host.length() == 0) return false;
   if (!client.connect(host.c_str(), port, 3000)) { Serial.println("server not reachable"); return false; }
   client.setNoDelay(true);
-  uint8_t hdr[10] = {'M', 'I', 'C', '2'};
+  int on = 1, idle = 15, interval = 5, count = 3;     // TCP keepalive: a connection the router has forgotten is noticed in about 30 s
+  setsockopt(client.fd(), SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on));
+  setsockopt(client.fd(), IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+  setsockopt(client.fd(), IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+  setsockopt(client.fd(), IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+  uint8_t hdr[42] = {'M', 'I', 'C', '2'};          // with a password the header is MIC3 + the password padded to 32 bytes
   uint32_t rate = RATE;
   uint16_t bits = 16;
   memcpy(hdr + 4, &rate, 4);
   memcpy(hdr + 8, &bits, 2);
-  client.write(hdr, sizeof(hdr));
+  size_t hdrLen = 10;
+  if (token.length() > 0) {
+    hdr[3] = '3';
+    memset(hdr + 10, 0, 32);
+    memcpy(hdr + 10, token.c_str(), min((size_t)32, (size_t)token.length()));
+    hdrLen = 42;
+  }
+  client.write(hdr, hdrLen);
   Serial.println("connected to server");
   debugText("firmware " __DATE__ " " __TIME__);
   return true;
@@ -250,7 +276,7 @@ void playFromServer(uint32_t total) {
   playGate = false;
   uint32_t left = total, idleSince = millis();
   while (left > 0 && client.connected()) {
-    esp_task_wdt_reset();
+    alive();
     size_t want = left < sizeof(tmp) ? left : sizeof(tmp);
     size_t got = client.readBytes(tmp, want);
     if (got == 0) {
@@ -262,7 +288,7 @@ void playFromServer(uint32_t total) {
     size_t sent = 0;
     while (sent < got) {                                 // wait for room in the buffer, the speaker is playing it out
       sent += xStreamBufferSend(playBuf, tmp + sent, got - sent, pdMS_TO_TICKS(500));
-      esp_task_wdt_reset();
+      alive();
       if (!client.connected()) break;
     }
     left -= got;
@@ -275,7 +301,7 @@ void playFromServer(uint32_t total) {
     playGate = false;
     client.stop();
   } else {
-    while ((xStreamBufferBytesAvailable(playBuf) > 0 || playBusy) && millis() - idleSince < 60000) { vTaskDelay(pdMS_TO_TICKS(10)); esp_task_wdt_reset(); }
+    while ((xStreamBufferBytesAvailable(playBuf) > 0 || playBusy) && millis() - idleSince < 60000) { vTaskDelay(pdMS_TO_TICKS(10)); alive(); }
     playGate = false;
   }
   digitalWrite(PIN_LED_BOARD, LOW);
@@ -380,7 +406,7 @@ void drainBytes(uint32_t n) {
   static uint8_t trash[512];
   uint32_t idle = millis();
   while (n > 0 && client.connected() && millis() - idle < 15000) {
-    esp_task_wdt_reset();
+    alive();
     size_t got = client.readBytes(trash, n < sizeof(trash) ? n : sizeof(trash));
     if (got) { n -= got; idle = millis(); }
   }
@@ -406,7 +432,7 @@ void otaFromServer() {
   uint32_t left = size, idle = millis(), lastTenth = 0;
   client.setTimeout(2000);
   while (left > 0 && client.connected()) {
-    esp_task_wdt_reset();
+    alive();
     size_t got = client.readBytes(buf, left < sizeof(buf) ? left : sizeof(buf));
     if (got == 0) {
       if (millis() - idle > 15000) break;

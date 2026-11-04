@@ -42,6 +42,7 @@ type server struct {
 	testMode                bool // button test: the buttons only light the page, they do not record or play
 	btnRec, btnNext         bool // physical buttons held right now
 	recPresses, nextPresses int
+	token                   string // MIC_TOKEN: the password the board must present (empty = none, for a home network)
 	sounds                  soundSettings
 	fw                      string // firmware build of the connected board, as it reported itself
 	otaBusy                 bool
@@ -71,6 +72,7 @@ func main() {
 		maxRecording = time.Duration(v) * time.Second
 	}
 	s := &server{recDir: recDir, gain: gain, autoGain: os.Getenv("MIC_GAIN") == ""}
+	s.token = os.Getenv("MIC_TOKEN")
 	s.loadSettings()
 	s.tg = startTelegram(s)
 
