@@ -91,5 +91,5 @@ func main() {
 		}
 	}()
 	log.Printf("web page: http://127.0.0.1:%s   audio port: %s   gain x%.1f   recordings: %s", webPort, audioPort, gain, recDir)
-	log.Fatal(http.ListenAndServe("127.0.0.1:"+webPort, s.web())) // the page is local only
+	log.Fatal(http.ListenAndServe("127.0.0.1:"+webPort, s.withAuth(s.web()))) // local only; published through a proxy as a Mini App when MIC_WEB_URL is set
 }

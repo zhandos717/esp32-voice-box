@@ -289,6 +289,7 @@ func startTelegram(s *server) *telegram {
 		base: strings.TrimRight(env("TELEGRAM_API_BASE", "https://api.telegram.org"), "/"), srv: s,
 		client: &http.Client{Timeout: 120 * time.Second}}
 	go t.run()
+	go t.setMenuButton()
 	return t
 }
 

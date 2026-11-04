@@ -51,6 +51,11 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 </section>
 <section class="card"><strong>Записи</strong><div id="list" class="mut">пока нет</div></section>
 </main>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+(async()=>{const tg=window.Telegram&&Telegram.WebApp;if(!tg||!tg.initData)return;tg.ready();tg.expand();
+if((await fetch("/api/status")).status===401&&(await fetch("/auth",{method:"POST",body:tg.initData})).ok)location.reload()})();
+</script>
 <script>
 const $=id=>document.getElementById(id);let rec=false;
 async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;
