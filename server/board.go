@@ -171,10 +171,17 @@ func (s *server) playNext(c net.Conn) {
 	}
 	pcm = normalize(pcm)
 	log.Printf("playing on the board: %s %.1f s%s", name, float64(len(pcm))/32000, map[bool]string{true: " (repeat)", false: ""}[replay])
-	msg := make([]byte, 5, 5+len(pcm))
-	msg[0] = 'P'
-	binary.LittleEndian.PutUint32(msg[1:], uint32(len(pcm)))
-	msg = append(msg, pcm...)
+	s.mu.Lock()
+	compress := s.adpcm
+	s.mu.Unlock()
+	kind, body := byte('P'), pcm
+	if compress {
+		kind, body = 'A', adpcmEncode(pcm)
+	}
+	msg := make([]byte, 5, 5+len(body))
+	msg[0] = kind
+	binary.LittleEndian.PutUint32(msg[1:], uint32(len(body)))
+	msg = append(msg, body...)
 	if s.write(c, msg) == nil && !replay { // blocks until the board has taken it
 		s.markPlayed(name)
 		s.write(c, s.unplayedMsg())
@@ -210,14 +217,15 @@ func (s *server) handleConn(c net.Conn) {
 	}
 	c.SetReadDeadline(time.Time{})
 	rate := binary.LittleEndian.Uint32(hdr[4:8])
+	adpcm := binary.LittleEndian.Uint16(hdr[8:10]) == 4 // the board sends and takes IMA ADPCM
 	s.mu.Lock()
 	if s.conn != nil {
 		s.conn.Close() // a new connection replaces the old one
 	}
-	s.conn, s.connected, s.peer, s.rate = c, true, c.RemoteAddr().String(), rate
+	s.conn, s.connected, s.peer, s.rate, s.adpcm = c, true, c.RemoteAddr().String(), rate, adpcm
 	s.btnRec, s.btnNext = false, false // a new connection starts with released buttons
 	s.mu.Unlock()
-	log.Println("ESP32 connected", c.RemoteAddr(), rate, "Hz")
+	log.Println("ESP32 connected", c.RemoteAddr(), rate, "Hz", map[bool]string{true: "ADPCM", false: "PCM"}[adpcm])
 	if s.tg != nil {
 		s.tg.boardOnline()
 	}
@@ -255,6 +263,9 @@ func (s *server) handleConn(c net.Conn) {
 		}
 		switch head[0] {
 		case 1:
+			if adpcm {
+				payload = adpcmDecode(payload)
+			}
 			s.onAudio(payload)
 		case 2: // record button pressed: hold to record
 			s.mu.Lock()

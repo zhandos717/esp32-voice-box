@@ -36,6 +36,7 @@ type server struct {
 	connected               bool
 	peer                    string
 	rate                    uint32
+	adpcm                   bool // the connected board speaks IMA ADPCM (a quarter of the PCM traffic)
 	recording               bool
 	level                   int
 	chimePending            bool // a new Telegram message has not been announced by the board yet (it acknowledges with frame 6)

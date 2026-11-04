@@ -19,6 +19,7 @@
 #include <freertos/stream_buffer.h>
 
 #include "config.h"
+#include "adpcm.h"
 
 // a note of a sound: start Hz, end Hz, ms, loudness, decay ms (0 = none), 2nd harmonic (declared here: the Arduino prototypes need it early)
 struct Note { float f0, f1; uint16_t ms; float amp, tau, h2; };
@@ -30,7 +31,7 @@ String ssid, pass, host, token;
 uint16_t port = 8800;
 bool streaming = false;
 int32_t raw[256];
-StreamBufferHandle_t micBuf;                // 16-bit samples from the microphone task to the loop: 2 s of slack for a stalled network write
+StreamBufferHandle_t micBuf;                // 16-bit samples from the microphone task to the loop: 1 s of slack for a stalled network write
 
 // Reads the microphone non-stop, so a slow Wi-Fi write in loop() can never make the I2S DMA overflow and lose audio
 void micTask(void *) {
@@ -42,7 +43,7 @@ void micTask(void *) {
     if (n > 0) xStreamBufferSend(micBuf, pcm16, n * sizeof(int16_t), 0);
   }
 }
-uint8_t frame[3 + 256 * sizeof(int16_t)];   // 1 byte type, 2 bytes length, then PCM
+uint8_t frame[3 + 256 * sizeof(int16_t)];   // 1 byte type, 2 bytes length, then PCM (encoded in place to ADPCM before sending)
 
 void setRecordingLeds(bool on) {
   digitalWrite(PIN_LED_REC, on);
@@ -138,8 +139,14 @@ void pushRing(const int16_t *s, int n) {
 
 uint32_t statRead = 0, statSent = 0, statMaxWrite = 0, statLoops = 0, statT = 0;   // diagnostics while recording
 
+int upIndex = 0;                          // ADPCM step carried from one microphone block to the next
+
 void sendAudioFrame(int n) {              // n samples are already in frame+3
-  uint16_t bytes = n * sizeof(int16_t);
+  static uint8_t enc[4 + 128];
+  int16_t *pcm = (int16_t *)(frame + 3);
+  if (n & 1) pcm[n] = pcm[n - 1], n++;
+  uint16_t bytes = adpcmEncodeBlock(pcm, n, enc, upIndex);
+  memcpy(frame + 3, enc, bytes);
   frame[0] = 1;
   frame[1] = bytes & 0xFF;
   frame[2] = bytes >> 8;
@@ -230,7 +237,7 @@ bool connectServer() {
   setsockopt(client.fd(), IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
   uint8_t hdr[42] = {'M', 'I', 'C', '2'};          // with a password the header is MIC3 + the password padded to 32 bytes
   uint32_t rate = RATE;
-  uint16_t bits = 16;
+  uint16_t bits = 4;                               // 4 = IMA ADPCM both ways (server/adpcm.go)
   memcpy(hdr + 4, &rate, 4);
   memcpy(hdr + 8, &bits, 2);
   size_t hdrLen = 10;
@@ -246,10 +253,11 @@ bool connectServer() {
   return true;
 }
 
-// Playback is buffered: the network fills a 1.5 s buffer, a separate task feeds the speaker from it,
+// Playback is buffered: the network fills a 2.5 s buffer, a separate task feeds the speaker from it,
 // so a Wi-Fi stall of a second or so does not turn into silence in the speaker.
 StreamBufferHandle_t playBuf;
 volatile bool playGate = false, playBusy = false;
+uint32_t playEnded = 0;
 
 void playTask(void *) {
   static int16_t chunk[256];
@@ -266,44 +274,68 @@ void playTask(void *) {
   }
 }
 
-// The server sends a recording as PCM: buffer it while it arrives and play it
-void playFromServer(uint32_t total) {
+// Reads exactly n bytes; false when the server goes silent for 10 s or the connection drops.
+bool readFull(uint8_t *buf, size_t n) {
+  uint32_t idleSince = millis();
+  size_t got = 0;
+  while (got < n && client.connected()) {
+    alive();
+    size_t r = client.readBytes(buf + got, n - got);
+    if (r) { got += r; idleSince = millis(); }
+    else if (millis() - idleSince > 10000) return false;
+  }
+  return got == n;
+}
+
+void queuePlay(const uint8_t *pcm, size_t bytes) {   // waits for room: the speaker is playing the buffer out
+  size_t sent = 0;
+  while (sent < bytes && client.connected()) {
+    sent += xStreamBufferSend(playBuf, pcm + sent, bytes - sent, pdMS_TO_TICKS(500));
+    alive();
+  }
+}
+
+// The server sends a recording as PCM ('P') or ADPCM blocks ('A'): buffer it while it arrives and play it
+void playFromServer(uint32_t total, bool adpcm) {
   static uint8_t tmp[1024];
-  const size_t START_BYTES = 16000;                    // half a second is collected before the sound starts
+  static int16_t pcm[256];
+  const size_t START_BYTES = 32000;                    // a second is collected before the sound starts
   client.setTimeout(1000);
   digitalWrite(PIN_LED_BOARD, HIGH);
   xStreamBufferReset(playBuf);
   playGate = false;
-  uint32_t left = total, idleSince = millis();
-  while (left > 0 && client.connected()) {
-    alive();
-    size_t want = left < sizeof(tmp) ? left : sizeof(tmp);
-    size_t got = client.readBytes(tmp, want);
-    if (got == 0) {
-      if (millis() - idleSince > 10000) break;          // the server went silent in the middle of a message
-      continue;
+  uint32_t left = total;
+  bool ok = true;
+  while (left > 0 && ok && client.connected()) {
+    if (adpcm) {
+      uint8_t h[4];
+      if (left < 4 || !(ok = readFull(h, 4))) break;
+      left -= 4;
+      if (h[3] > left || h[3] > 128 || !(ok = readFull(tmp, h[3]))) { ok = false; break; }
+      left -= h[3];
+      Ima st = {(int16_t)(h[0] | (h[1] << 8)), h[2] > 88 ? 88 : h[2]};
+      for (int k = 0; k < h[3]; k++) { pcm[2 * k] = st.decode(tmp[k] & 15); pcm[2 * k + 1] = st.decode(tmp[k] >> 4); }
+      queuePlay((uint8_t *)pcm, h[3] * 4);
+    } else {
+      size_t want = (left < sizeof(tmp) ? left : sizeof(tmp)) & ~(size_t)1;
+      if (want == 0 || !(ok = readFull(tmp, want))) break;
+      left -= want;
+      queuePlay(tmp, want);
     }
-    idleSince = millis();
-    got &= ~(size_t)1;                                   // whole 16-bit samples only
-    size_t sent = 0;
-    while (sent < got) {                                 // wait for room in the buffer, the speaker is playing it out
-      sent += xStreamBufferSend(playBuf, tmp + sent, got - sent, pdMS_TO_TICKS(500));
-      alive();
-      if (!client.connected()) break;
-    }
-    left -= got;
     if (!playGate && xStreamBufferBytesAvailable(playBuf) >= START_BYTES) playGate = true;
   }
   playGate = true;                                       // short message: play what we have
-  if (left > 0) {                                        // aborted: the rest of the PCM would be read as commands, start over
+  if (left > 0) {                                        // aborted: the rest would be read as commands, start over
     Serial.println("playback aborted, reconnecting");
     xStreamBufferReset(playBuf);
     playGate = false;
     client.stop();
   } else {
-    while ((xStreamBufferBytesAvailable(playBuf) > 0 || playBusy) && millis() - idleSince < 60000) { vTaskDelay(pdMS_TO_TICKS(10)); alive(); }
+    uint32_t t0 = millis();
+    while ((xStreamBufferBytesAvailable(playBuf) > 0 || playBusy) && millis() - t0 < 60000) { vTaskDelay(pdMS_TO_TICKS(10)); alive(); }
     playGate = false;
   }
+  playEnded = millis();
   digitalWrite(PIN_LED_BOARD, LOW);
 }
 
@@ -455,7 +487,7 @@ void otaFromServer() {
   client.stop();                                   // the rest of the image must not be read as commands: start over
 }
 
-// From the server: 'R' start, 'S' stop, 'U'+count (unheard recordings), 'N' nothing to play, 'L'+id+state set an LED, 'O' firmware update, 'B'+id+vol new-message sound, 'K'+id+vol sound without acknowledgement, 'W'+n start-up sound choice, 'P'+len+PCM play
+// From the server: 'R' start, 'S' stop, 'U'+count (unheard recordings), 'N' nothing to play, 'L'+id+state set an LED, 'O' firmware update, 'B'+id+vol new-message sound, 'K'+id+vol sound without acknowledgement, 'W'+n start-up sound choice, 'P'+len+PCM or 'A'+len+ADPCM blocks play
 void handleIncoming() {
   while (client.available()) {
     int c = client.read();
@@ -466,14 +498,14 @@ void handleIncoming() {
     else if (c == 'S') { streaming = false; setRecordingLeds(false); }
     else if (c == 'U') { uint8_t n = 0; if (client.readBytes(&n, 1) == 1) digitalWrite(PIN_LED_NEW, n > 0); }
     else if (c == 'B') { uint8_t b[2]; if (client.readBytes(b, 2) == 2) { if (!streaming) playSound(b[0], b[1] / 100.0f); sendEvent(6); } }   // new message: sound id, loudness %, acknowledged
-    else if (c == 'K') { uint8_t b[2]; if (client.readBytes(b, 2) == 2 && !streaming) playSound(b[0], b[1] / 100.0f); }                      // preview or repeat: no acknowledgement
+    else if (c == 'K') { uint8_t b[2]; if (client.readBytes(b, 2) == 2 && !streaming && millis() - playEnded > 5000) playSound(b[0], b[1] / 100.0f); }   // preview or repeat: no acknowledgement; reminders queued up during a playback are dropped
     else if (c == 'W') { uint8_t b = 0; if (client.readBytes(&b, 1) == 1) { prefs.begin("mic", false); if (prefs.getUChar("boot", 1) != b) prefs.putUChar("boot", b); prefs.end(); } }   // start-up sound choice: 0 = none, 1..4
     else if (c == 'L') { uint8_t b[2]; if (client.readBytes(b, 2) == 2 && b[0] < 3) { const int pins[3] = {PIN_LED_NEW, PIN_LED_REC, PIN_LED_BOARD}; digitalWrite(pins[b[0]], b[1]); } }   // LED test from the web page
     else if (c == 'O') otaFromServer();
     else if (c == 'N') Serial.println("nothing new to play");
-    else if (c == 'P') {
+    else if (c == 'P' || c == 'A') {
       uint8_t b[4];
-      if (client.readBytes(b, 4) == 4) playFromServer(b[0] | (b[1] << 8) | (b[2] << 16) | ((uint32_t)b[3] << 24));
+      if (client.readBytes(b, 4) == 4) playFromServer(b[0] | (b[1] << 8) | (b[2] << 16) | ((uint32_t)b[3] << 24), c == 'A');
     }
   }
 }
@@ -497,9 +529,9 @@ void setup() {
   if (!i2sOut.begin(I2S_MODE_STD, RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_BOTH))
     Serial.println("I2S (speaker) init failed");
   // the audio tasks start only when both I2S channels are up (the order the diagnostic found working)
-  micBuf = xStreamBufferCreate(64 * 1024, 2);
+  micBuf = xStreamBufferCreate(32 * 1024, 2);
   xTaskCreatePinnedToCore(micTask, "mic", 4096, NULL, 5, NULL, 1);
-  playBuf = xStreamBufferCreate(48 * 1024, 2);
+  playBuf = xStreamBufferCreate(80 * 1024, 2);
   xTaskCreatePinnedToCore(playTask, "play", 4096, NULL, 5, NULL, 1);
   esp_reset_reason_t why = esp_reset_reason();      // sound only when power is applied or the board is reset by hand, not after a crash or watchdog reboot
   if (why == ESP_RST_POWERON || why == ESP_RST_EXT) {
