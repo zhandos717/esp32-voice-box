@@ -522,6 +522,7 @@ void setup() {
 
 void loop() {
   esp_task_wdt_reset();
+  if (streaming) digitalWrite(PIN_LED_REC, (millis() / 250) % 2 == 0);   // blinks twice a second while recording
   static uint32_t lastOk = 0;                         // no server for 5 minutes (Wi-Fi gone for good, router rebooted): restart the board
   if (client.connected()) lastOk = millis();
   else if (ssid.length() > 0 && millis() - lastOk > 300000) { Serial.println("no server for 5 min, restarting"); delay(100); ESP.restart(); }
