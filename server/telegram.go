@@ -472,12 +472,7 @@ func (t *telegram) handle(m *tgMessage) {
 	t.srv.mu.Lock()
 	t.srv.chimePending = true
 	t.srv.mu.Unlock()
-	t.srv.send(t.srv.newMessageMsg(100))   // sound on the board: a new message has arrived (resent after a reconnect until the board acknowledges)
-	time.AfterFunc(4*time.Second, func() { // and once more a few seconds later, if it is still waiting
-		if len(t.srv.unplayed()) > 0 {
-			t.srv.send(append([]byte{'K'}, t.srv.newMessageMsg(50)[1:]...)) // the same sound, quieter, as a reminder
-		}
-	})
+	t.srv.send(t.srv.newMessageMsg(100)) // sound on the board: a new message has arrived (resent after a reconnect until the board acknowledges)
 	t.say(chat, thread, fmt.Sprintf("Принято (%.0f с): ждёт на колонке платы.", secs))
 }
 

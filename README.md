@@ -45,6 +45,7 @@ Windows при первом запуске спросит разрешение �
 | `TELEGRAM_CHAT_ID` | числовой ID чата; пока пуст, бот в режиме привязки |
 | `TELEGRAM_THREAD_ID` | номер топика группы-форума (команда `/id` в топике), пусто если топиков нет |
 | `MIC_REC_DIR`, `MIC_GAIN`, `MIC_MAX_SECONDS`, `FFMPEG` | папка записей, усиление (4), предел записи (300 с), путь к ffmpeg |
+| `MIC_REMIND_SECONDS` | как часто напоминать звуком о непрослушанных (5 с, 0 = выключено) |
 
 Подробнее: [Telegram](docs/telegram.md) · [протокол](docs/protocol.md) · [если не работает](docs/troubleshooting.md).
 
