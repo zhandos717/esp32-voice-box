@@ -12,6 +12,7 @@
 #include <WiFi.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+#include <esp_ota_ops.h>
 #include <esp_wifi.h>
 #include <Update.h>
 #include <lwip/sockets.h>
@@ -34,16 +35,79 @@ int32_t raw[256];
 StreamBufferHandle_t micBuf;                // 16-bit samples from the microphone task to the loop: 1 s of slack for a stalled network write
 
 // Reads the microphone non-stop, so a slow Wi-Fi write in loop() can never make the I2S DMA overflow and lose audio
+// High-pass (DC and hum out), then a soft limiter: loud peaks are bent down instead of clipping
+static inline int16_t micSample(int32_t x) {
+  static float prevIn = 0, prevOut = 0;
+  const float a = 1.0f - 2 * PI * MIC_HIGHPASS_HZ / RATE;
+  float in = x >> 16, y = in - prevIn + a * prevOut;   // top 16 of the 24 bits
+  prevIn = in;
+  prevOut = y;
+  const float knee = 24000;
+  float m = fabsf(y);
+  if (m > knee) y = copysignf(min(32767.0f, knee + (m - knee) * 0.25f), y);
+  return (int16_t)y;
+}
+
 void micTask(void *) {
   static int16_t pcm16[256];
   for (;;) {
     size_t got = i2s.readBytes((char *)raw, sizeof(raw));
     int n = got / sizeof(int32_t);
-    for (int i = 0; i < n; i++) pcm16[i] = raw[i] >> 16;   // top 16 of the 24 bits
+    for (int i = 0; i < n; i++) pcm16[i] = micSample(raw[i]);
     if (n > 0) xStreamBufferSend(micBuf, pcm16, n * sizeof(int16_t), 0);
   }
 }
 uint8_t frame[3 + 256 * sizeof(int16_t)];   // 1 byte type, 2 bytes length, then PCM (encoded in place to ADPCM before sending)
+
+void debugText(const char *t);
+
+void amp(bool on) {
+  if (!on) delay(30);                                 // let the I2S DMA play out its tail first
+  digitalWrite(PIN_AMP_SD, on);
+  if (on) delay(5);
+}
+
+// ---- OTA trial: a new image must reach the server and stay connected for a minute, otherwise the board goes back
+// to the previous slot. The boot count catches a crash loop, the timer a firmware that never finds the server.
+const uint8_t TRIAL_BOOTS = 3;
+const uint32_t TRIAL_CONFIRM_MS = 60000, TRIAL_GIVE_UP_MS = 180000;
+bool otaTrial = false;
+
+void rollback(const char *why) {
+  Serial.printf("ota trial failed (%s), going back to the previous firmware\n", why);
+  prefs.begin("mic", false);
+  prefs.putUChar("trial", 0);
+  prefs.end();
+  const esp_partition_t *old = esp_ota_get_next_update_partition(NULL);
+  esp_app_desc_t d;
+  if (old && esp_ota_get_partition_description(old, &d) == ESP_OK && esp_ota_set_boot_partition(old) == ESP_OK) {
+    delay(100);
+    ESP.restart();
+  }
+  Serial.println("no previous firmware to go back to, staying");
+}
+
+void startTrial() {
+  prefs.begin("mic", false);
+  otaTrial = prefs.getUChar("trial", 0);
+  uint8_t boots = otaTrial ? prefs.getUChar("tboots", 0) + 1 : 0;
+  if (otaTrial) prefs.putUChar("tboots", boots);
+  prefs.end();
+  if (otaTrial && boots > TRIAL_BOOTS) rollback("too many restarts");
+}
+
+void checkTrial(uint32_t connectedSince) {
+  if (!otaTrial) return;
+  if (connectedSince && millis() - connectedSince > TRIAL_CONFIRM_MS) {
+    otaTrial = false;
+    prefs.begin("mic", false);
+    prefs.putUChar("trial", 0);
+    prefs.end();
+    debugText("ota: new firmware confirmed");
+  } else if (millis() > TRIAL_GIVE_UP_MS) {
+    rollback("no server");
+  }
+}
 
 void setRecordingLeds(bool on) {
   digitalWrite(PIN_LED_REC, on);
@@ -221,7 +285,8 @@ bool connectWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     WiFi.setSleep(false);                           // no modem sleep: otherwise the router holds our packets for seconds
     esp_wifi_set_ps(WIFI_PS_NONE);
-    Serial.printf("Wi-Fi up, IP %s, RSSI %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);             // the most the radio allows: helps the board's packets reach a far router
+    Serial.printf("Wi-Fi up, IP %s, RSSI %d dBm, TX power %d (x0.25 dBm)\n", WiFi.localIP().toString().c_str(), WiFi.RSSI(), WiFi.getTxPower());
   }
   return WiFi.status() == WL_CONNECTED;
 }
@@ -250,6 +315,7 @@ bool connectServer() {
   client.write(hdr, hdrLen);
   Serial.println("connected to server");
   debugText("firmware " __DATE__ " " __TIME__);
+  debugToServer("Wi-Fi TX power %lu.%02lu dBm", WiFi.getTxPower() / 4, WiFi.getTxPower() % 4 * 25);
   return true;
 }
 
@@ -302,6 +368,7 @@ void playFromServer(uint32_t total, bool adpcm) {
   const size_t START_BYTES = 32000;                    // a second is collected before the sound starts
   client.setTimeout(1000);
   digitalWrite(PIN_LED_BOARD, HIGH);
+  amp(true);
   xStreamBufferReset(playBuf);
   playGate = false;
   uint32_t left = total;
@@ -335,6 +402,7 @@ void playFromServer(uint32_t total, bool adpcm) {
     while ((xStreamBufferBytesAvailable(playBuf) > 0 || playBusy) && millis() - t0 < 60000) { vTaskDelay(pdMS_TO_TICKS(10)); alive(); }
     playGate = false;
   }
+  amp(false);
   playEnded = millis();
   digitalWrite(PIN_LED_BOARD, LOW);
 }
@@ -367,6 +435,7 @@ void playNotes(const Note *notes, int count, float vol) {
 // New-message sounds 1..10, start-up sounds 102..104 (101 is the PlayStation one, bootSound below)
 void bootSound();
 void playSound(int id, float vol) {
+  amp(true);
   static const Note drop[]   = {{600, 1500, 170, 1.0f, 60, 0}, {0, 0, 50, 0, 0, 0}, {900, 900, 220, 0.3f, 70, 0}};
   static const Note uhoh[]   = {{880, 820, 130, 1.0f, 0, 0.35f}, {0, 0, 30, 0, 0, 0}, {620, 520, 200, 1.0f, 90, 0.35f}};
   static const Note bell[]   = {{1568, 1568, 900, 1.0f, 300, 0.4f}};
@@ -396,6 +465,7 @@ void playSound(int id, float vol) {
     case 103: SND(bootBeep); break;
     case 104: SND(bootTwo); break;
   }
+  amp(false);
 }
 
 // Power-on sound in the spirit of the PlayStation start-up: a deep pad swells, then a bright shimmering chord rings out
@@ -477,6 +547,10 @@ void otaFromServer() {
     if (tenth != lastTenth) { lastTenth = tenth; debugToServer("ota: %lu0 %%", tenth); }
   }
   if (left == 0 && Update.end(true)) {
+    prefs.begin("mic", false);                     // the new image starts on trial, see startTrial()
+    prefs.putUChar("trial", 1);
+    prefs.putUChar("tboots", 0);
+    prefs.end();
     debugToServer("ota: done, restarting");
     delay(500);
     ESP.restart();
@@ -518,6 +592,9 @@ void setup() {
   pinMode(PIN_LED_REC, OUTPUT);
   pinMode(PIN_LED_NEW, OUTPUT);
   pinMode(PIN_LED_BOARD, OUTPUT);
+  pinMode(PIN_AMP_SD, OUTPUT);
+  digitalWrite(PIN_AMP_SD, LOW);
+  startTrial();
   setRecordingLeds(false);
   i2s.setPins(PIN_BCLK, PIN_WS, -1, PIN_DIN);
   // INMP441: 24 bits left-justified in a 32-bit slot, L/R tied to GND = left channel
@@ -555,7 +632,9 @@ void setup() {
 void loop() {
   esp_task_wdt_reset();
   if (streaming) digitalWrite(PIN_LED_REC, (millis() / 250) % 2 == 0);   // blinks twice a second while recording
-  static uint32_t lastOk = 0;                         // no server for 5 minutes (Wi-Fi gone for good, router rebooted): restart the board
+  static uint32_t lastOk = 0, connectedSince = 0;
+  connectedSince = client.connected() ? (connectedSince ? connectedSince : millis()) : 0;
+  checkTrial(connectedSince);                         // no server for 5 minutes (Wi-Fi gone for good, router rebooted): restart the board
   if (client.connected()) lastOk = millis();
   else if (ssid.length() > 0 && millis() - lastOk > 300000) { Serial.println("no server for 5 min, restarting"); delay(100); ESP.restart(); }
   static uint32_t lastIter = 0;
