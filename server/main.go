@@ -36,6 +36,7 @@ type server struct {
 	connected               bool
 	peer                    string
 	rate                    uint32
+	adpcm                   bool // the connected board speaks IMA ADPCM (a quarter of the PCM traffic)
 	recording               bool
 	level                   int
 	chimePending            bool // a new Telegram message has not been announced by the board yet (it acknowledges with frame 6)
@@ -90,6 +91,24 @@ func main() {
 			go s.handleConn(c)
 		}
 	}()
+	go s.remindUnplayed()
 	log.Printf("web page: http://127.0.0.1:%s   audio port: %s   gain x%.1f   recordings: %s", webPort, audioPort, gain, recDir)
 	log.Fatal(http.ListenAndServe("127.0.0.1:"+webPort, s.withAuth(s.web()))) // local only; published through a proxy as a Mini App when MIC_WEB_URL is set
+}
+
+// remindUnplayed repeats the new-message sound, quieter, every MIC_REMIND_SECONDS (5 by default, 0 = off)
+// while something waits unplayed. The board skips it while recording.
+func (s *server) remindUnplayed() {
+	secs, err := strconv.Atoi(env("MIC_REMIND_SECONDS", "5"))
+	if err != nil || secs <= 0 {
+		return
+	}
+	for range time.Tick(time.Duration(secs) * time.Second) {
+		s.mu.Lock()
+		skip := !s.connected || s.recording || s.otaBusy
+		s.mu.Unlock()
+		if !skip && len(s.unplayed()) > 0 {
+			s.send(append([]byte{'K'}, s.newMessageMsg(50)[1:]...))
+		}
+	}
 }
