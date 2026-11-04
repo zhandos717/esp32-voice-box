@@ -1,0 +1,76 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Микрофон ESP32</title>
+<style>
+:root{--bg:#f4f5f6;--fg:#161a1d;--mut:#5d6870;--card:#fff;--line:#d9dee2;--acc:#0b7a6b;--rec:#c62f2f}
+@media(prefers-color-scheme:dark){:root{--bg:#101416;--fg:#e6ecef;--mut:#92a1a9;--card:#171d20;--line:#2a343a;--acc:#4fcbb2;--rec:#ff6b6b}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}
+h1{font-size:22px;margin:0}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:12px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.mut{color:var(--mut);font-size:13px}
+button{font:inherit;font-weight:600;padding:10px 20px;border-radius:6px;border:1px solid var(--fg);background:var(--fg);color:var(--bg);cursor:pointer}
+button.rec{background:var(--rec);border-color:var(--rec);color:#fff}button:disabled{opacity:.4;cursor:default}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mut);display:inline-block;margin-right:6px}.dot.on{background:var(--acc)}
+.bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .12s}
+audio{width:100%}.file{display:grid;gap:4px;padding-top:8px;border-top:1px solid var(--line)}
+.new{color:var(--acc);font-size:12px;margin-left:6px}
+.lamp{display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:8px}.lamp i{width:22px;height:22px;border-radius:50%;background:var(--line);border:1px solid var(--mut);display:inline-block}.lamp i.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
+button.led{background:var(--card);color:var(--fg);border-color:var(--line)}button.led.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.snds{display:grid;gap:6px;margin-top:8px}.snd{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}.snd.cur{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent)}.snd span{flex:1}.snd button{padding:6px 12px}
+</style>
+<main>
+<h1>Микрофон ESP32</h1>
+<section class="card">
+<div class="row"><span><i class="dot" id="dot"></i><span id="conn">ожидаю ESP32…</span></span><span class="mut" id="peer"></span></div>
+<div class="bar"><i id="lvl"></i></div>
+<div class="row"><button id="btn" disabled>Записать</button><span id="time" class="mut"></span></div>
+</section>
+<section class="card">
+<strong>Звуки</strong>
+<div class="mut">«▶» играет на плате, «Выбрать» запоминает. Сигнал о сообщении повторяется через 4 секунды тише.</div>
+<div><b>Сигнал о новом сообщении</b><div id="sndNotify" class="snds"></div></div>
+<div><b>Звук при включении</b><div id="sndBoot" class="snds"></div></div>
+</section>
+<section class="card">
+<strong>Прошивка платы</strong>
+<div class="row"><span class="mut">на плате: <b id="fw">неизвестна</b></span></div>
+<div class="row"><button id="ota">Обновить по Wi-Fi</button><span id="otaMsg" class="mut"></span></div>
+<span class="mut">Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.</span>
+</section>
+<section class="card">
+<strong>Проверка кнопок и светодиодов</strong>
+<label class="row"><input type="checkbox" id="test"> режим проверки (кнопки только зажигают лампы, не пишут и не играют)</label>
+<div class="row">
+<div class="lamp"><i id="lRec"></i><span>Кнопка записи<br><small class="mut">GPIO 27, нажатий: <b id="nRec">0</b></small></span></div>
+<div class="lamp"><i id="lNext"></i><span>Кнопка «дальше»<br><small class="mut">GPIO 13, нажатий: <b id="nNext">0</b></small></span></div>
+</div>
+<div class="row">
+<button class="led" data-id="0">Светодиод «новое» (GPIO 18)</button>
+<button class="led" data-id="1">Подсветка записи (GPIO 4)</button>
+<button class="led" data-id="2">Светодиод платы (GPIO 2)</button>
+</div>
+</section>
+<section class="card"><strong>Записи</strong><div id="list" class="mut">пока нет</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let rec=false;
+async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;
+$('dot').className='dot'+(s.connected?' on':'');$('conn').textContent=s.connected?'ESP32 подключена':'ожидаю ESP32…';
+$('peer').textContent=s.connected?s.peer:'';$('lvl').style.width=Math.min(100,s.level/40)+'%';
+$('btn').disabled=!s.connected;$('btn').textContent=rec?'Остановить':'Записать';$('btn').className=rec?'rec':'';
+$('time').textContent=rec?('идёт запись '+s.seconds.toFixed(0)+' с'):'';
+$('lRec').className=s.btnRec?'on':'';$('lNext').className=s.btnNext?'on':'';$('nRec').textContent=s.recPresses;$('nNext').textContent=s.nextPresses;
+if(document.activeElement!==$('test'))$('test').checked=s.test;$('fw').textContent=s.fw||'неизвестна';$('ota').disabled=!s.connected||s.otaBusy;if(s.otaBusy)$('otaMsg').textContent='идёт передача…';}catch(e){}}
+$('ota').onclick=async()=>{if(!confirm('Отправить прошивку на плату? Это займёт около минуты, плата перезапустится.'))return;const r=await (await fetch('/api/ota',{method:'POST'})).json();$('otaMsg').textContent=r.ok?('отправлено '+Math.round(r.bytes/1024)+' КБ, плата перезапустится'):r.error};
+async function sounds(){const d=await (await fetch('/api/sounds')).json();
+for(const [kind,box] of [['notify','sndNotify'],['boot','sndBoot']]){$(box).innerHTML=d[kind].map(x=>`<div class="snd${d.current[kind]===x.id?' cur':''}"><span>${x.name}${d.current[kind]===x.id?' — выбран':''}</span>${x.id?`<button class="led" data-k="${kind}" data-id="${x.id}" data-a="play">▶</button>`:''}<button data-k="${kind}" data-id="${x.id}" data-a="select">Выбрать</button></div>`).join('')}}
+document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const r=await (await fetch('/api/sound/'+b.dataset.a+'?kind='+b.dataset.k+'&id='+b.dataset.id,{method:'POST'})).json();if(!r.ok)alert(r.error);if(b.dataset.a==='select')sounds()});
+sounds();
+$('test').onchange=()=>fetch('/api/test?on='+($('test').checked?1:0),{method:'POST'});
+document.querySelectorAll('button.led').forEach(b=>b.onclick=async()=>{const on=!b.classList.contains('on');const r=await (await fetch('/api/led?id='+b.dataset.id+'&on='+(on?1:0),{method:'POST'})).json();if(r.ok)b.classList.toggle('on',on)});
+$('btn').onclick=async()=>{await fetch(rec?'/api/stop':'/api/start',{method:'POST'});tick();setTimeout(list,400)};
+async function list(){const f=await (await fetch('/api/list')).json();
+const el=$('list');if(el.contains(document.activeElement)||[...el.querySelectorAll('audio')].some(a=>!a.paused))return;
+el.innerHTML=f.length?f.map(r=>`<div class="file"><span>${r.name}${r.played?'':' <b class="new">новая</b>'}</span><audio controls preload="none" src="/rec/${r.name}" data-n="${r.name}"></audio></div>`).join(''):'пока нет';
+el.querySelectorAll('audio').forEach(a=>a.addEventListener('play',()=>fetch('/api/mark/'+a.dataset.n,{method:'POST'}),{once:true}))}
+setInterval(tick,250);setInterval(list,4000);tick();list();
+</script></html>

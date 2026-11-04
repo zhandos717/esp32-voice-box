@@ -1,0 +1,17 @@
+# private data and build products must never be committed
+telegram.json
+recordings/
+*.wav
+*.exe
+*.log
+build/
+tests/run/
+__pycache__/
+.tg_offset
+
+.env
+.env.*
+
+!.env.example
+*.exe~
+*.bak

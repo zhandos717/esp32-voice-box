@@ -1,0 +1,259 @@
+package main
+
+import (
+	"crypto/md5"
+	_ "embed"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+//go:embed web/index.html
+var page []byte
+
+// ---------- web (127.0.0.1 only) ----------
+
+func (s *server) web() http.Handler {
+	mux := http.NewServeMux()
+	jsonOut := func(w http.ResponseWriter, v any) {
+		w.Header().Set("content-type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(v)
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("content-type", "text/html; charset=utf-8")
+		w.Write(page)
+	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		level := s.level
+		if time.Since(s.lastAudio) > time.Second {
+			level = 0
+		}
+		secs := 0.0
+		if s.recording {
+			secs = time.Since(s.started).Seconds()
+		}
+		st := map[string]any{"connected": s.connected, "peer": s.peer, "recording": s.recording, "level": level, "seconds": secs,
+			"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode}
+		s.mu.Unlock()
+		jsonOut(w, st)
+	})
+	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
+		set := s.playedSet()
+		names := s.allWavs()
+		out := make([]map[string]any, 0, len(names))
+		for i := len(names) - 1; i >= 0; i-- { // newest first
+			out = append(out, map[string]any{"name": names[i], "played": set[names[i]]})
+		}
+		jsonOut(w, out)
+	})
+	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if e := s.startRecording(); e != "" {
+			jsonOut(w, map[string]any{"ok": false, "error": e})
+			return
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		name := s.finishRecording()
+		var f any
+		if name != "" {
+			f = name
+		}
+		jsonOut(w, map[string]any{"ok": true, "file": f})
+	})
+	mux.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) { // button test mode on/off
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.mu.Lock()
+		s.testMode = r.URL.Query().Get("on") == "1"
+		if s.testMode {
+			s.recPresses, s.nextPresses = 0, 0
+		}
+		s.mu.Unlock()
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/led", func(w http.ResponseWriter, r *http.Request) { // light an LED on the board: id 0 = new (GPIO18), 1 = record (GPIO4), 2 = board (GPIO2)
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := strconv.Atoi(r.URL.Query().Get("id"))
+		if err != nil || id < 0 || id > 2 {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		on := byte(0)
+		if r.URL.Query().Get("on") == "1" {
+			on = 1
+		}
+		if err := s.send([]byte{'L', byte(id), on}); err != nil {
+			jsonOut(w, map[string]any{"ok": false, "error": "ESP32 не подключена"})
+			return
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/ota", func(w http.ResponseWriter, r *http.Request) { // send the firmware image to the board over Wi-Fi
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		path := env("MIC_FIRMWARE", filepath.Join("firmware", "build", "mic_stream.ino.bin"))
+		data, err := os.ReadFile(path)
+		if err != nil || len(data) < 100000 {
+			jsonOut(w, map[string]any{"ok": false, "error": "нет файла прошивки: " + path + " (соберите: scripts/ota.ps1)"})
+			return
+		}
+		s.mu.Lock()
+		c, busy := s.conn, s.recording || s.otaBusy
+		s.mu.Unlock()
+		if c == nil || busy {
+			jsonOut(w, map[string]any{"ok": false, "error": "плата не подключена или занята записью"})
+			return
+		}
+		sum := md5.Sum(data)
+		msg := append([]byte{'O'}, binary.LittleEndian.AppendUint32(nil, uint32(len(data)))...)
+		msg = append(msg, hex.EncodeToString(sum[:])...)
+		msg = append(msg, data...)
+		s.mu.Lock()
+		s.otaBusy = true
+		s.mu.Unlock()
+		go func() {
+			start := time.Now()
+			log.Printf("ota: sending %s, %d bytes", path, len(data))
+			err := s.write(c, msg)
+			s.mu.Lock()
+			s.otaBusy = false
+			s.mu.Unlock()
+			if err != nil {
+				log.Println("ota: send failed:", err)
+				return
+			}
+			log.Printf("ota: sent in %.0f s, the board checks it and restarts", time.Since(start).Seconds())
+		}()
+		jsonOut(w, map[string]any{"ok": true, "bytes": len(data)})
+	})
+	mux.HandleFunc("/api/sounds", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		cur := s.sounds
+		s.mu.Unlock()
+		jsonOut(w, map[string]any{"notify": notifySounds, "boot": bootSounds, "current": cur})
+	})
+	mux.HandleFunc("/api/sound/play", func(w http.ResponseWriter, r *http.Request) { // listen to a sound on the board
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+		kind := r.URL.Query().Get("kind")
+		code := id
+		if kind == "boot" {
+			if !validSound(bootSounds, id) || id == 0 {
+				http.Error(w, "bad id", http.StatusBadRequest)
+				return
+			}
+			code = 100 + id
+		} else if !validSound(notifySounds, id) {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		if err := s.send([]byte{'K', byte(code), 100}); err != nil {
+			jsonOut(w, map[string]any{"ok": false, "error": "ESP32 не подключена"})
+			return
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/sound/select", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+		kind := r.URL.Query().Get("kind")
+		s.mu.Lock()
+		switch {
+		case kind == "boot" && validSound(bootSounds, id):
+			s.sounds.Boot = id
+		case kind == "notify" && validSound(notifySounds, id):
+			s.sounds.Notify = id
+		default:
+			s.mu.Unlock()
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		s.saveSettings()
+		s.mu.Unlock()
+		if kind == "boot" {
+			s.send([]byte{'W', byte(id)}) // the board stores it, it is needed before the network is up
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/chime", func(w http.ResponseWriter, r *http.Request) { // test: play the new-message chime on the board
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := s.send(s.newMessageMsg(100)); err != nil {
+			jsonOut(w, map[string]any{"ok": false, "error": "ESP32 не подключена"})
+			return
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/play", func(w http.ResponseWriter, r *http.Request) { // same as the "play next" button on the board
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.mu.Lock()
+		c := s.conn
+		s.mu.Unlock()
+		if c == nil {
+			jsonOut(w, map[string]any{"ok": false, "error": "ESP32 не подключена"})
+			return
+		}
+		go s.playNext(c)
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/mark/", func(w http.ResponseWriter, r *http.Request) {
+		name := filepath.Base(strings.TrimPrefix(r.URL.Path, "/api/mark/"))
+		for _, n := range s.allWavs() {
+			if n == name && r.Method == http.MethodPost {
+				s.markPlayed(name)
+				s.sendUnplayed()
+				jsonOut(w, map[string]any{"ok": true})
+				return
+			}
+		}
+		http.NotFound(w, r)
+	})
+	mux.HandleFunc("/rec/", func(w http.ResponseWriter, r *http.Request) {
+		name := filepath.Base(strings.TrimPrefix(r.URL.Path, "/rec/"))
+		if !strings.HasSuffix(name, ".wav") {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(s.recDir, name))
+	})
+	return mux
+}
