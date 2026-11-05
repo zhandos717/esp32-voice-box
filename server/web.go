@@ -35,6 +35,7 @@ func (s *server) web() http.Handler {
 		w.Write(page)
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		unplayed := len(s.unplayed())
 		s.mu.Lock()
 		level := s.level
 		if time.Since(s.lastAudio) > time.Second {
@@ -45,7 +46,17 @@ func (s *server) web() http.Handler {
 			secs = time.Since(s.started).Seconds()
 		}
 		st := map[string]any{"connected": s.connected, "peer": s.peer, "recording": s.recording, "level": level, "seconds": secs,
-			"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode}
+			"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode,
+			"rssi": s.rssi, "adpcm": s.adpcm, "connects": s.connects, "tele": s.tele, "unplayed": unplayed}
+		if s.connected {
+			st["connectedFor"] = int(time.Since(s.connectedAt).Seconds())
+		}
+		if !s.teleAt.IsZero() {
+			st["teleAge"] = int(time.Since(s.teleAt).Seconds())
+		}
+		if !s.lastGone.IsZero() {
+			st["lastGoneAgo"] = int(time.Since(s.lastGone).Seconds())
+		}
 		s.mu.Unlock()
 		jsonOut(w, st)
 	})
