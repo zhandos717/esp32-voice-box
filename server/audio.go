@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/binary"
 	"math"
+	"sort"
 )
 
 const (
 	highPassHz     = 110.0 // below this the box and the button rumble, there is no speech
 	trimTailMs     = 100   // the click of the released button is at the very end of a recording
+	keepSilenceMs  = 350   // after the last sound of the tail
 	prerollSamples = 6400  // the board sends this much audio from before the press first (PREROLL in the firmware): the press click follows right after it
 	clickBeforeMs  = 45    // the contact is felt before the debounced press is reported
 	clickAfterMs   = 80    // ringing of the button and the box after the press
@@ -64,7 +66,10 @@ func softLimit(v float64) float64 {
 
 // duckClick dips the level around the moment of the button press, where the click of the button is recorded.
 func duckClick(x []float64, rate int) {
-	at := prerollSamples * rate / 16000
+	duckAt(x, prerollSamples*rate/16000, rate)
+}
+
+func duckAt(x []float64, at, rate int) {
 	from, to := at-clickBeforeMs*rate/1000, at+clickAfterMs*rate/1000
 	ramp := 15 * rate / 1000
 	if from < 0 || to+ramp > len(x) {
@@ -86,7 +91,8 @@ func duckClick(x []float64, rate int) {
 
 // conditionVoice turns the raw microphone samples into a clean recording:
 // no DC offset, no rumble, no click of the released button, even loudness, smooth peaks.
-func (s *server) conditionVoice(raw []byte, rate uint32) []byte {
+// conditionVoice: releasedAt is the sample where the button was let go and the tail began (0 = none).
+func (s *server) conditionVoice(raw []byte, rate uint32, releasedAt int) []byte {
 	n := len(raw) / 2
 	x := make([]float64, n)
 	var sum float64
@@ -100,7 +106,10 @@ func (s *server) conditionVoice(raw []byte, rate uint32) []byte {
 	}
 	highPass(x, highPassHz, float64(rate))
 	duckClick(x, int(rate))
-	if cut := int(rate) * trimTailMs / 1000; n > 4*cut {
+	if releasedAt > 0 && releasedAt < len(x) {
+		duckAt(x, releasedAt, int(rate)) // the release click now sits inside the recording
+		x = trimSilence(x, releasedAt, int(rate))
+	} else if cut := int(rate) * trimTailMs / 1000; n > 4*cut {
 		x = x[:n-cut]
 	}
 	g := s.gain
@@ -144,4 +153,36 @@ func normalize(pcm []byte) []byte {
 		binary.LittleEndian.PutUint16(out[2*i:], uint16(int16(softLimit(v*g))))
 	}
 	return out
+}
+
+// trimSilence cuts the quiet end of the tail: everything after the last 20 ms frame clearly above the room noise,
+// plus keepSilenceMs. Nothing before from (the release) is cut.
+func trimSilence(x []float64, from, rate int) []float64 {
+	frame := rate / 50
+	if len(x) < 4*frame {
+		return x
+	}
+	var levels []float64
+	for i := 0; i+frame <= len(x); i += frame {
+		var e float64
+		for _, v := range x[i : i+frame] {
+			e += v * v
+		}
+		levels = append(levels, math.Sqrt(e/float64(frame)))
+	}
+	sorted := append([]float64(nil), levels...)
+	sort.Float64s(sorted)
+	threshold := math.Max(sorted[len(sorted)/10]*4, 60)
+	last := from / frame
+	for k := len(levels) - 1; k > last; k-- {
+		if levels[k] > threshold {
+			last = k
+			break
+		}
+	}
+	end := (last+1)*frame + keepSilenceMs*rate/1000
+	if end > len(x) {
+		end = len(x)
+	}
+	return x[:end]
 }

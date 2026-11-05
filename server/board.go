@@ -18,6 +18,9 @@ import (
 
 const minHold = 300 * time.Millisecond // a button hold shorter than this is an accidental tap
 
+// recordTail: children let go of the button before the last word; the recording runs on this long (MIC_TAIL_MS)
+var recordTail = 2500 * time.Millisecond
+
 var maxRecording = 5 * time.Minute // MIC_MAX_SECONDS overrides it
 
 // ---------- writing to the board ----------
@@ -62,6 +65,7 @@ func (s *server) onAudio(b []byte) {
 	s.level = lv
 	if s.recording && s.raw != nil {
 		s.raw.Write(b)
+		s.recSamples += len(b) / 2
 	}
 }
 
@@ -82,6 +86,7 @@ func (s *server) startRecording() string {
 		return err.Error()
 	}
 	s.raw, s.rawPath, s.recording, s.started = f, path, true, time.Now()
+	s.recSamples, s.releasedAt = 0, 0
 	started := s.started
 	s.mu.Unlock()
 	s.send([]byte{'R'})
@@ -122,7 +127,7 @@ func (s *server) finishRecording() string {
 		return ""
 	}
 	s.recording = false
-	raw, path, rate := s.raw, s.rawPath, s.rate
+	raw, path, rate, releasedAt := s.raw, s.rawPath, s.rate, s.releasedAt
 	s.raw = nil
 	s.mu.Unlock()
 	raw.Close()
@@ -133,7 +138,7 @@ func (s *server) finishRecording() string {
 		log.Println("recording too short, dropped")
 		return ""
 	}
-	out := s.conditionVoice(data, rate)
+	out := s.conditionVoice(data, rate, releasedAt)
 	n := len(out) / 2
 	name := s.newName("rec")
 	full := filepath.Join(s.recDir, name)
@@ -285,6 +290,10 @@ func (s *server) handleConn(c net.Conn) {
 				break
 			}
 			log.Println("button pressed")
+			s.mu.Lock()
+			s.tailGen++ // pressed again during the tail: the same recording goes on
+			s.releasedAt = 0
+			s.mu.Unlock()
 			s.startRecording()
 		case 4: // record button released
 			s.mu.Lock()
@@ -299,8 +308,20 @@ func (s *server) handleConn(c net.Conn) {
 				log.Println("button released: too short a tap, ignored")
 				s.discardRecording()
 			} else if rec {
-				log.Printf("button released after %.1f s", held.Seconds())
-				s.finishRecording()
+				log.Printf("button released after %.1f s, recording %.1f s more", held.Seconds(), recordTail.Seconds())
+				s.mu.Lock()
+				s.tailGen++
+				gen := s.tailGen
+				s.releasedAt = s.recSamples
+				s.mu.Unlock()
+				time.AfterFunc(recordTail, func() {
+					s.mu.Lock()
+					same := s.tailGen == gen && !s.btnRec
+					s.mu.Unlock()
+					if same {
+						s.finishRecording()
+					}
+				})
 			}
 		case 3:
 			s.mu.Lock()

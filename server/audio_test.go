@@ -34,7 +34,7 @@ func TestConditionVoice(t *testing.T) {
 		}
 		return v
 	}, 16000)
-	out := s.conditionVoice(in, 16000)
+	out := s.conditionVoice(in, 16000, 0)
 	if r := rms(out); r < 3000 {
 		t.Errorf("quiet tone was not raised enough: rms %.0f", r)
 	}
@@ -46,7 +46,7 @@ func TestConditionVoice(t *testing.T) {
 		return 1000 * math.Sin(2*math.Pi*300*float64(i)/16000)
 	}, 16000)
 	s.autoGain, s.gain = false, 1
-	co := s.conditionVoice(click, 16000)
+	co := s.conditionVoice(click, 16000, 0)
 	if a, b := rms(co[(prerollSamples+40)*2:(prerollSamples+200)*2]), rms(co[(prerollSamples+4000)*2:(prerollSamples+4160)*2]); a > b {
 		t.Errorf("the click was not suppressed: %.0f in the click vs %.0f in the speech", a, b)
 	}
@@ -54,7 +54,27 @@ func TestConditionVoice(t *testing.T) {
 	rumble := pcm(func(i int) float64 { return 3000 * math.Sin(2*math.Pi*40*float64(i)/16000) }, 16000)
 	s.autoGain = false
 	s.gain = 1
-	if r := rms(s.conditionVoice(rumble, 16000)); r > 0.15*rms(rumble) {
+	if r := rms(s.conditionVoice(rumble, 16000, 0)); r > 0.15*rms(rumble) {
 		t.Errorf("rumble not removed: %.0f of %.0f", r, rms(rumble))
+	}
+}
+
+func TestTrimSilenceAfterRelease(t *testing.T) {
+	rate := 16000
+	x := make([]float64, 5*rate) // 2 s of speech, released at 2 s, a word at 2.5-3 s, then 2 s of quiet
+	for i := range x {
+		x[i] = 5 * math.Sin(float64(i))
+		if i < 2*rate || (i >= 2*rate+rate/2 && i < 3*rate) {
+			x[i] = 8000 * math.Sin(2*math.Pi*300*float64(i)/float64(rate))
+		}
+	}
+	y := trimSilence(x, 2*rate, rate)
+	want := 3*rate + keepSilenceMs*rate/1000
+	if d := len(y) - want; d < -rate/50 || d > rate/50 {
+		t.Fatalf("kept %d samples, want about %d", len(y), want)
+	}
+	quiet := append(append([]float64(nil), x[:2*rate]...), make([]float64, 2*rate)...)
+	if got := len(trimSilence(quiet, 2*rate, rate)); got < 2*rate || got > 2*rate+keepSilenceMs*rate/1000+rate/50 {
+		t.Fatalf("quiet tail: kept %d", got)
 	}
 }
