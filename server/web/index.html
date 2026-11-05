@@ -20,53 +20,54 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 .vrow{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:8px;align-items:center}.vrow select{font:inherit;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);min-width:0}
 @media(max-width:480px){.vrow{grid-template-columns:1fr}}
 .tele{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.tele div{padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}.tele small{display:block;color:var(--mut);font-size:12px}.tele b{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.tele .bad b{color:var(--rec)}
+.lang{display:flex;gap:4px;margin-left:auto}.lang button{padding:4px 10px;font-size:13px;background:var(--card);color:var(--fg);border-color:var(--line)}.lang button.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .snds{display:grid;gap:6px;margin-top:8px}.snd{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}.snd.cur{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent)}.snd span{flex:1}.snd button{padding:6px 12px}
 </style>
 <main>
-<h1>Микрофон ESP32</h1>
+<div class="row"><h1 data-t="title">Микрофон ESP32</h1><div class="lang" role="group" aria-label="Language"><button data-lang="ru">RU</button><button data-lang="kk">KZ</button><button data-lang="en">EN</button></div></div>
 <section class="card">
 <div class="row"><span><i class="dot" id="dot"></i><span id="conn">ожидаю ESP32…</span></span><span class="mut" id="peer"></span></div>
 <div class="bar"><i id="lvl"></i></div>
 <div class="row"><button id="btn" disabled>Записать</button><span id="time" class="mut"></span></div>
 </section>
 <section class="card">
-<div class="row"><strong>Телеметрия платы</strong><span class="mut" id="teleAge"></span></div>
-<div class="tele" id="tele"><span class="mut">ждём первый отчёт платы (раз в 15 с)</span></div>
+<div class="row"><strong data-t="tele">Телеметрия платы</strong><span class="mut" id="teleAge"></span></div>
+<div class="tele" id="tele"><span class="mut" data-t="teleWait">ждём первый отчёт платы (раз в 15 с)</span></div>
 </section>
 <section class="card">
-<strong>Звуки</strong>
-<div class="mut">«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.</div>
-<div><b>Сигнал о новом сообщении</b><div id="sndNotify" class="snds"></div></div>
-<div><b>Звук при включении</b><div id="sndBoot" class="snds"></div></div>
+<strong data-t="sounds">Звуки</strong>
+<div class="mut" data-t="soundsNote">«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.</div>
+<div><b data-t="notify">Сигнал о новом сообщении</b><div id="sndNotify" class="snds"></div></div>
+<div><b data-t="boot">Звук при включении</b><div id="sndBoot" class="snds"></div></div>
 </section>
 <section class="card">
-<strong>Голос для текстовых сообщений</strong>
-<div class="mut" id="vNote">Текст из Telegram коробка прочитает вслух. Казахский голос включается сам, если в тексте есть буквы ә, ғ, қ, ң, ө, ұ, ү, һ, і.</div>
-<label class="vrow"><span>Русский</span><select id="vRu"></select><button class="led" id="tRu">Прослушать на коробке</button></label>
-<label class="vrow"><span>Казахский</span><select id="vKk"></select><button class="led" id="tKk">Прослушать на коробке</button></label>
+<strong data-t="voice">Голос для текстовых сообщений</strong>
+<div class="mut" id="vNote"></div>
+<label class="vrow"><span data-t="ru">Русский</span><select id="vRu"></select><button class="led" id="tRu" data-t="listen">Прослушать на коробке</button></label>
+<label class="vrow"><span data-t="kk">Казахский</span><select id="vKk"></select><button class="led" id="tKk" data-t="listen">Прослушать на коробке</button></label>
 <span class="mut" id="vMsg"></span>
-<div><b>Свой голос для каждого</b><div class="mut">Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.</div><div id="vPeople" class="snds"></div></div>
+<div><b data-t="people">Свой голос для каждого</b><div class="mut" data-t="peopleNote">Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.</div><div id="vPeople" class="snds"></div></div>
 </section>
 <section class="card">
-<strong>Прошивка платы</strong>
-<div class="row"><span class="mut">на плате: <b id="fw">неизвестна</b></span></div>
-<div class="row"><button id="ota">Обновить по Wi-Fi</button><span id="otaMsg" class="mut"></span></div>
-<span class="mut">Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.</span>
+<strong data-t="fwTitle">Прошивка платы</strong>
+<div class="row"><span class="mut"><span data-t="onBoard">на плате:</span> <b id="fw">неизвестна</b></span></div>
+<div class="row"><button id="ota" data-t="otaBtn">Обновить по Wi-Fi</button><span id="otaMsg" class="mut"></span></div>
+<span class="mut" data-t="otaNote">Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.</span>
 </section>
 <section class="card">
-<strong>Проверка кнопок и светодиодов</strong>
-<label class="row"><input type="checkbox" id="test"> режим проверки (кнопки только зажигают лампы, не пишут и не играют)</label>
+<strong data-t="check">Проверка кнопок и светодиодов</strong>
+<label class="row"><input type="checkbox" id="test"> <span data-t="testMode">режим проверки (кнопки только зажигают лампы, не пишут и не играют)</span></label>
 <div class="row">
-<div class="lamp"><i id="lRec"></i><span>Кнопка записи<br><small class="mut">GPIO 27, нажатий: <b id="nRec">0</b></small></span></div>
-<div class="lamp"><i id="lNext"></i><span>Кнопка «дальше»<br><small class="mut">GPIO 13, нажатий: <b id="nNext">0</b></small></span></div>
+<div class="lamp"><i id="lRec"></i><span><span data-t="btnRec">Кнопка записи</span><br><small class="mut">GPIO 27, <span data-t="presses">нажатий:</span> <b id="nRec">0</b></small></span></div>
+<div class="lamp"><i id="lNext"></i><span><span data-t="btnNext">Кнопка «дальше»</span><br><small class="mut">GPIO 13, <span data-t="presses">нажатий:</span> <b id="nNext">0</b></small></span></div>
 </div>
 <div class="row">
-<button class="led" data-id="0">Светодиод «новое» (GPIO 18)</button>
-<button class="led" data-id="1">Подсветка записи (GPIO 4)</button>
-<button class="led" data-id="2">Светодиод платы (GPIO 2)</button>
+<button class="led" data-id="0" data-t="led0">Светодиод «новое» (GPIO 18)</button>
+<button class="led" data-id="1" data-t="led1">Подсветка записи (GPIO 4)</button>
+<button class="led" data-id="2" data-t="led2">Светодиод платы (GPIO 2)</button>
 </div>
 </section>
-<section class="card"><strong>Записи</strong><div id="list" class="mut">пока нет</div></section>
+<section class="card"><strong data-t="recs">Записи</strong><div id="list" class="mut"></div></section>
 </main>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
@@ -75,49 +76,72 @@ if((await fetch("/api/status")).status===401&&(await fetch("/auth",{method:"POST
 </script>
 <script>
 const $=id=>document.getElementById(id);let rec=false;
-const dur=x=>x==null?'—':x<60?x+' с':x<3600?Math.floor(x/60)+' мин':Math.floor(x/3600)+' ч '+Math.floor(x%3600/60)+' мин';
-const kb=x=>x==null?'—':(x/1024).toFixed(0)+' КБ';
-function tele(s){const t=s.tele||{};const rows=[
-['Сигнал Wi-Fi',t.rssi!=null?t.rssi+' dBm':'—',t.rssi<-80],['Канал / точка',t.channel!=null?t.channel+' · '+t.bssid:'—'],
-['Мощность передатчика',t.txPower!=null?t.txPower+' дБм':'—'],['IP платы',t.ip||'—'],
-['Работает без перезагрузки',dur(t.uptime)],['Причина последней перезагрузки',t.reset||'—',t.reset&&/wdt|panic|brownout/.test(t.reset)],
-['Связь с сервером',s.connected?dur(s.connectedFor):'нет',!s.connected],['Подключений к серверу',(t.serverConnects??'—')+' / '+s.connects],
-['Обрывов Wi-Fi',t.wifiDrops!=null?t.wifiDrops+(t.wifiDrops?' (код '+t.lastDropReason+')':''):'—',t.wifiDrops>0],
-['Сжатие звука',s.adpcm?'ADPCM':'нет (PCM)'],['Свободно памяти',kb(t.heap)+' (мин. '+kb(t.heapMin)+')',t.heapMin<40000],
-['Крупнейший блок памяти',kb(t.heapBlock)],['Частота CPU',t.cpuMHz?t.cpuMHz+' МГц':'—'],
-['Зависание цикла, макс.',t.loopMaxGapMs!=null?t.loopMaxGapMs+' мс':'—',t.loopMaxGapMs>1000],
-['Потеряно при записи',t.micDropped!=null?t.micDropped+' отсчётов':'—',t.micDropped>0],
-['Запас буфера при записи (15 с)',kb(t.micBufFreeMin),t.micBufFreeMin<4096],
-['Провалы при проигрывании',t.playUnderruns??'—',t.playUnderruns>0],['Непрослушанных',s.unplayed],
-['Новая прошивка на испытании',t.otaTrial?'да':'нет']];
+const T={
+ru:{title:'Микрофон ESP32',tele:'Телеметрия платы',teleWait:'ждём первый отчёт платы (раз в 15 с)',sounds:'Звуки',soundsNote:'«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.',notify:'Сигнал о новом сообщении',boot:'Звук при включении',voice:'Голос для текстовых сообщений',ru:'Русский',kk:'Казахский',listen:'Прослушать на коробке',people:'Свой голос для каждого',peopleNote:'Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.',fwTitle:'Прошивка платы',onBoard:'на плате:',otaBtn:'Обновить по Wi-Fi',otaNote:'Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.',check:'Проверка кнопок и светодиодов',testMode:'режим проверки (кнопки только зажигают лампы, не пишут и не играют)',btnRec:'Кнопка записи',btnNext:'Кнопка «дальше»',presses:'нажатий:',led0:'Светодиод «новое» (GPIO 18)',led1:'Подсветка записи (GPIO 4)',led2:'Светодиод платы (GPIO 2)',recs:'Записи',
+none:'пока нет',newRec:'новая',waiting:'ожидаю ESP32…',online:'ESP32 подключена',record:'Записать',stop:'Остановить',recording:'идёт запись {0} с',unknown:'неизвестна',otaBusy:'идёт передача…',otaAsk:'Отправить прошивку на плату? Это займёт около минуты, плата перезапустится.',otaSent:'отправлено {0} КБ, плата перезапустится',
+vNote:'Текст из Telegram коробка прочитает вслух. Казахский голос включается сам, если в тексте есть буквы ә, ғ, қ, ң, ө, ұ, ү, һ, і.',vNoTts:'Синтез речи ещё не настроен на сервере. Голос можно выбрать заранее.',fromEnv:'как в настройках сервера (.env)',ruDef:'русский: по умолчанию',kkDef:'казахский: по умолчанию',nobody:'Пока никто не писал.',saved:'Сохранено',savedFor:'Сохранено для {0}',notSaved:'Не сохранилось',speaking:'Озвучиваю…',playing:'Играет на коробке',chosen:' — выбран',choose:'Выбрать',
+s:'с',min:'мин',h:'ч',kb:'КБ',ago:'обновлено {0} назад',yes:'да',no:'нет',
+tRssi:'Сигнал Wi-Fi',tCh:'Канал / точка',tTx:'Мощность передатчика',tIp:'IP платы',tUp:'Работает без перезагрузки',tReset:'Причина последней перезагрузки',tLink:'Связь с сервером',tConn:'Подключений к серверу',tDrops:'Обрывов Wi-Fi',tCode:'код',tCodec:'Сжатие звука',tPcm:'нет (PCM)',tHeap:'Свободно памяти',tMinShort:'мин.',tBlock:'Крупнейший блок памяти',tCpu:'Частота CPU',tMhz:'МГц',tGap:'Зависание цикла, макс.',tMs:'мс',tLost:'Потеряно при записи',tSamples:'отсчётов',tBuf:'Запас буфера при записи (15 с)',tUnder:'Провалы при проигрывании',tUnplayed:'Непрослушанных',tTrial:'Новая прошивка на испытании'},
+kk:{title:'ESP32 микрофоны',tele:'Плата телеметриясы',teleWait:'платаның алғашқы есебін күтудеміз (15 с сайын)',sounds:'Дыбыстар',soundsNote:'«▶» платада ойнатады, «Таңдау» есте сақтайды. Тыңдалмаған хабар болса, сигнал әр 5 секунд сайын ақырын қайталанады.',notify:'Жаңа хабар сигналы',boot:'Қосылғандағы дыбыс',voice:'Мәтіндік хабарлардың дауысы',ru:'Орысша',kk:'Қазақша',listen:'Қорапта тыңдау',people:'Әркімге өз дауысы',peopleNote:'Адамдар чатқа жазғанда осы жерде пайда болады. «Әдепкі» — жоғарыдағы дауыс.',fwTitle:'Плата бағдарламасы',onBoard:'платада:',otaBtn:'Wi-Fi арқылы жаңарту',otaNote:'Алдымен жаңа бағдарламаны жинаңыз: scripts/ota.ps1 (ол оны жібереді де). Плата бейнені тексеріп, өзі қайта қосылады.',check:'Түймелер мен шамдарды тексеру',testMode:'тексеру режимі (түймелер тек шамды жағады, жазбайды және ойнатпайды)',btnRec:'Жазу түймесі',btnNext:'«Келесі» түймесі',presses:'басылды:',led0:'«Жаңа» шамы (GPIO 18)',led1:'Жазу жарығы (GPIO 4)',led2:'Плата шамы (GPIO 2)',recs:'Жазбалар',
+none:'әзірге жоқ',newRec:'жаңа',waiting:'ESP32 күтудемін…',online:'ESP32 қосылды',record:'Жазу',stop:'Тоқтату',recording:'жазылып жатыр {0} с',unknown:'белгісіз',otaBusy:'жіберілуде…',otaAsk:'Бағдарламаны платаға жіберу керек пе? Шамамен бір минут алады, плата қайта қосылады.',otaSent:'{0} КБ жіберілді, плата қайта қосылады',
+vNote:'Telegram-дағы мәтінді қорап дауыстап оқиды. Мәтінде ә, ғ, қ, ң, ө, ұ, ү, һ, і әріптері болса, қазақ дауысы өзі қосылады.',vNoTts:'Сөйлеу синтезі серверде әлі бапталмаған. Дауысты алдын ала таңдауға болады.',fromEnv:'сервер баптауындағыдай (.env)',ruDef:'орысша: әдепкі',kkDef:'қазақша: әдепкі',nobody:'Әзірге ешкім жазбады.',saved:'Сақталды',savedFor:'{0} үшін сақталды',notSaved:'Сақталмады',speaking:'Дыбыстаудамын…',playing:'Қорапта ойнап тұр',chosen:' — таңдалды',choose:'Таңдау',
+s:'с',min:'мин',h:'сағ',kb:'КБ',ago:'{0} бұрын жаңартылды',yes:'иә',no:'жоқ',
+tRssi:'Wi-Fi сигналы',tCh:'Арна / нүкте',tTx:'Таратқыш қуаты',tIp:'Плата IP',tUp:'Қайта қосылмай жұмыс істеп тұр',tReset:'Соңғы қайта қосылу себебі',tLink:'Сервермен байланыс',tConn:'Серверге қосылулар',tDrops:'Wi-Fi үзілістері',tCode:'код',tCodec:'Дыбысты сығу',tPcm:'жоқ (PCM)',tHeap:'Бос жад',tMinShort:'мин.',tBlock:'Ең үлкен жад блогы',tCpu:'CPU жиілігі',tMhz:'МГц',tGap:'Цикл кідірісі, макс.',tMs:'мс',tLost:'Жазу кезінде жоғалды',tSamples:'үлгі',tBuf:'Жазу буферінің қоры (15 с)',tUnder:'Ойнату кезіндегі үзілістер',tUnplayed:'Тыңдалмаған',tTrial:'Жаңа бағдарлама сынақта'},
+en:{title:'ESP32 microphone',tele:'Board telemetry',teleWait:'waiting for the first board report (every 15 s)',sounds:'Sounds',soundsNote:'“▶” plays on the board, “Choose” saves it. While there are unplayed messages, the signal repeats quieter every 5 seconds.',notify:'New message signal',boot:'Start-up sound',voice:'Voice for text messages',ru:'Russian',kk:'Kazakh',listen:'Play on the box',people:'A voice for each person',peopleNote:'People appear here when they write to the chat. “Default” means the voice above.',fwTitle:'Board firmware',onBoard:'on the board:',otaBtn:'Update over Wi-Fi',otaNote:'Build the new firmware first: scripts/ota.ps1 (it also sends it). The board checks the image and restarts by itself.',check:'Buttons and LEDs test',testMode:'test mode (buttons only light the lamps, no recording or playback)',btnRec:'Record button',btnNext:'“Next” button',presses:'presses:',led0:'“New” LED (GPIO 18)',led1:'Record light (GPIO 4)',led2:'Board LED (GPIO 2)',recs:'Recordings',
+none:'none yet',newRec:'new',waiting:'waiting for ESP32…',online:'ESP32 connected',record:'Record',stop:'Stop',recording:'recording {0} s',unknown:'unknown',otaBusy:'sending…',otaAsk:'Send the firmware to the board? It takes about a minute, the board will restart.',otaSent:'sent {0} KB, the board will restart',
+vNote:'The box reads Telegram text aloud. The Kazakh voice switches on by itself when the text has the letters ә, ғ, қ, ң, ө, ұ, ү, һ, і.',vNoTts:'Speech synthesis is not set up on the server yet. You can choose a voice in advance.',fromEnv:'as in server settings (.env)',ruDef:'Russian: default',kkDef:'Kazakh: default',nobody:'Nobody has written yet.',saved:'Saved',savedFor:'Saved for {0}',notSaved:'Not saved',speaking:'Speaking…',playing:'Playing on the box',chosen:' — chosen',choose:'Choose',
+s:'s',min:'min',h:'h',kb:'KB',ago:'updated {0} ago',yes:'yes',no:'no',
+tRssi:'Wi-Fi signal',tCh:'Channel / access point',tTx:'Transmit power',tIp:'Board IP',tUp:'Uptime',tReset:'Last reset reason',tLink:'Server link',tConn:'Server connections',tDrops:'Wi-Fi drops',tCode:'code',tCodec:'Audio compression',tPcm:'none (PCM)',tHeap:'Free memory',tMinShort:'min',tBlock:'Largest memory block',tCpu:'CPU frequency',tMhz:'MHz',tGap:'Loop stall, max',tMs:'ms',tLost:'Lost while recording',tSamples:'samples',tBuf:'Record buffer headroom (15 s)',tUnder:'Playback underruns',tUnplayed:'Unplayed',tTrial:'New firmware on trial'}};
+const tgLang=((window.Telegram&&Telegram.WebApp.initDataUnsafe||{}).user||{}).language_code;
+let L='ru';try{L=localStorage.getItem('lang')||(tgLang in T?tgLang:'ru')}catch(e){}
+const t=(k,...a)=>(T[L][k]??T.ru[k]).replace(/\{(\d)\}/g,(_,i)=>a[i]);
+function applyLang(){document.documentElement.lang=L;document.title=t('title');document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));
+document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===L));$('vNote').textContent=t(ttsReady?'vNote':'vNoTts')}
+let ttsReady=true;
+
+const dur=x=>x==null?'—':x<60?x+' '+t('s'):x<3600?Math.floor(x/60)+' '+t('min'):Math.floor(x/3600)+' '+t('h')+' '+Math.floor(x%3600/60)+' '+t('min');
+const kb=x=>x==null?'—':(x/1024).toFixed(0)+' '+t('kb');
+function tele(s){const m=s.tele||{};const rows=[
+[t('tRssi'),m.rssi!=null?m.rssi+' dBm':'—',m.rssi<-80],[t('tCh'),m.channel!=null?m.channel+' · '+m.bssid:'—'],
+[t('tTx'),m.txPower!=null?m.txPower+' dBm':'—'],[t('tIp'),m.ip||'—'],
+[t('tUp'),dur(m.uptime)],[t('tReset'),m.reset||'—',m.reset&&/wdt|panic|brownout/.test(m.reset)],
+[t('tLink'),s.connected?dur(s.connectedFor):t('no'),!s.connected],[t('tConn'),(m.serverConnects??'—')+' / '+s.connects],
+[t('tDrops'),m.wifiDrops!=null?m.wifiDrops+(m.wifiDrops?' ('+t('tCode')+' '+m.lastDropReason+')':''):'—',m.wifiDrops>0],
+[t('tCodec'),s.adpcm?'ADPCM':t('tPcm')],[t('tHeap'),kb(m.heap)+' ('+t('tMinShort')+' '+kb(m.heapMin)+')',m.heapMin<40000],
+[t('tBlock'),kb(m.heapBlock)],[t('tCpu'),m.cpuMHz?m.cpuMHz+' '+t('tMhz'):'—'],
+[t('tGap'),m.loopMaxGapMs!=null?m.loopMaxGapMs+' '+t('tMs'):'—',m.loopMaxGapMs>1000],
+[t('tLost'),m.micDropped!=null?m.micDropped+' '+t('tSamples'):'—',m.micDropped>0],
+[t('tBuf'),kb(m.micBufFreeMin),m.micBufFreeMin<4096],
+[t('tUnder'),m.playUnderruns??'—',m.playUnderruns>0],[t('tUnplayed'),s.unplayed],
+[t('tTrial'),m.otaTrial?t('yes'):t('no')]];
 $('tele').innerHTML=rows.map(([k,v,bad])=>'<div'+(bad?' class="bad"':'')+'><small>'+k+'</small><b>'+String(v).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;')+'</b></div>').join('');
-$('teleAge').textContent=s.teleAge!=null?'обновлено '+dur(s.teleAge)+' назад':''}
+$('teleAge').textContent=s.teleAge!=null?t('ago',dur(s.teleAge)):''}
 async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;tele(s);
-$('dot').className='dot'+(s.connected?' on':'');$('conn').textContent=s.connected?'ESP32 подключена':'ожидаю ESP32…';
+$('dot').className='dot'+(s.connected?' on':'');$('conn').textContent=s.connected?t('online'):t('waiting');
 $('peer').textContent=s.connected?s.peer:'';$('lvl').style.width=Math.min(100,s.level/40)+'%';
-$('btn').disabled=!s.connected;$('btn').textContent=rec?'Остановить':'Записать';$('btn').className=rec?'rec':'';
-$('time').textContent=rec?('идёт запись '+s.seconds.toFixed(0)+' с'):'';
+$('btn').disabled=!s.connected;$('btn').textContent=rec?t('stop'):t('record');$('btn').className=rec?'rec':'';
+$('time').textContent=rec?t('recording',s.seconds.toFixed(0)):'';
 $('lRec').className=s.btnRec?'on':'';$('lNext').className=s.btnNext?'on':'';$('nRec').textContent=s.recPresses;$('nNext').textContent=s.nextPresses;
-if(document.activeElement!==$('test'))$('test').checked=s.test;$('fw').textContent=s.fw||'неизвестна';$('ota').disabled=!s.connected||s.otaBusy;if(s.otaBusy)$('otaMsg').textContent='идёт передача…';}catch(e){}}
-$('ota').onclick=async()=>{if(!confirm('Отправить прошивку на плату? Это займёт около минуты, плата перезапустится.'))return;const r=await (await fetch('/api/ota',{method:'POST'})).json();$('otaMsg').textContent=r.ok?('отправлено '+Math.round(r.bytes/1024)+' КБ, плата перезапустится'):r.error};
+if(document.activeElement!==$('test'))$('test').checked=s.test;$('fw').textContent=s.fw||t('unknown');$('ota').disabled=!s.connected||s.otaBusy;if(s.otaBusy)$('otaMsg').textContent=t('otaBusy');}catch(e){}}
+$('ota').onclick=async()=>{if(!confirm(t('otaAsk')))return;const r=await (await fetch('/api/ota',{method:'POST'})).json();$('otaMsg').textContent=r.ok?t('otaSent',Math.round(r.bytes/1024)):r.error};
 async function voices(){const d=await (await fetch('/api/voices')).json();
 for(const [lang,el] of [['ru',$('vRu')],['kk',$('vKk')]]){const kk=lang==='kk';
-el.innerHTML='<option value="">как в настройках сервера (.env)</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
+el.innerHTML='<option value="">'+t('fromEnv')+'</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
 el.value=d.current[lang]||'';
-el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?'Сохранено':'Не сохранилось'}}
+el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?t('saved'):t('notSaved')}}
 const opts=(kk,dflt)=>'<option value="">'+dflt+'</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
 const esc=t=>String(t).replace(/[<&"]/g,c=>({'<':'&lt;','&':'&amp;','"':'&quot;'}[c]));
 $('vPeople').innerHTML=d.senders.length?d.senders.map(p=>'<div class="person"><b>'+esc(p.name||('id '+p.id))+'</b>'+
-'<select id="pr-'+p.id+'" aria-label="Русский голос: '+esc(p.name)+'">'+opts(false,'русский: по умолчанию')+'</select>'+
-'<select id="pk-'+p.id+'" aria-label="Казахский голос: '+esc(p.name)+'">'+opts(true,'казахский: по умолчанию')+'</select></div>').join(''):'<span class="mut">Пока никто не писал.</span>';
+'<select id="pr-'+p.id+'" aria-label="'+t('ru')+': '+esc(p.name)+'">'+opts(false,t('ruDef'))+'</select>'+
+'<select id="pk-'+p.id+'" aria-label="'+t('kk')+': '+esc(p.name)+'">'+opts(true,t('kkDef'))+'</select></div>').join(''):'<span class="mut">'+t('nobody')+'</span>';
 for(const p of d.senders)for(const [lang,el] of [['ru',$('pr-'+p.id)],['kk',$('pk-'+p.id)]]){el.value=p[lang]||'';
-el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&user='+p.id+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?'Сохранено для '+(p.name||p.id):'Не сохранилось'}}
-if(!d.ready)$('vNote').textContent='Синтез речи ещё не настроен на сервере: нужны AZURE_SPEECH_KEY и AZURE_SPEECH_REGION в .env. Голос можно выбрать заранее.';
-for(const [lang,b,sel] of [['ru',$('tRu'),$('vRu')],['kk',$('tKk'),$('vKk')]])b.onclick=async e=>{e.preventDefault();$('vMsg').textContent='Озвучиваю…';
-const r=await (await fetch('/api/voice/test?lang='+lang+'&id='+encodeURIComponent(sel.value),{method:'POST'})).json();$('vMsg').textContent=r.ok?'Играет на коробке':r.error}}
+el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&user='+p.id+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?t('savedFor',p.name||p.id):t('notSaved')}}
+ttsReady=d.ready;applyLang();
+for(const [lang,b,sel] of [['ru',$('tRu'),$('vRu')],['kk',$('tKk'),$('vKk')]])b.onclick=async e=>{e.preventDefault();$('vMsg').textContent=t('speaking');
+const r=await (await fetch('/api/voice/test?lang='+lang+'&id='+encodeURIComponent(sel.value),{method:'POST'})).json();$('vMsg').textContent=r.ok?t('playing'):r.error}}
 voices();
 async function sounds(){const d=await (await fetch('/api/sounds')).json();
-for(const [kind,box] of [['notify','sndNotify'],['boot','sndBoot']]){$(box).innerHTML=d[kind].map(x=>`<div class="snd${d.current[kind]===x.id?' cur':''}"><span>${x.name}${d.current[kind]===x.id?' — выбран':''}</span>${x.id?`<button class="led" data-k="${kind}" data-id="${x.id}" data-a="play">▶</button>`:''}<button data-k="${kind}" data-id="${x.id}" data-a="select">Выбрать</button></div>`).join('')}}
+for(const [kind,box] of [['notify','sndNotify'],['boot','sndBoot']]){$(box).innerHTML=d[kind].map(x=>`<div class="snd${d.current[kind]===x.id?' cur':''}"><span>${x.name}${d.current[kind]===x.id?t('chosen'):''}</span>${x.id?`<button class="led" data-k="${kind}" data-id="${x.id}" data-a="play">▶</button>`:''}<button data-k="${kind}" data-id="${x.id}" data-a="select">${t('choose')}</button></div>`).join('')}}
 document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const r=await (await fetch('/api/sound/'+b.dataset.a+'?kind='+b.dataset.k+'&id='+b.dataset.id,{method:'POST'})).json();if(!r.ok)alert(r.error);if(b.dataset.a==='select')sounds()});
 sounds();
 $('test').onchange=()=>fetch('/api/test?on='+($('test').checked?1:0),{method:'POST'});
@@ -125,7 +149,8 @@ document.querySelectorAll('button.led').forEach(b=>b.onclick=async()=>{const on=
 $('btn').onclick=async()=>{await fetch(rec?'/api/stop':'/api/start',{method:'POST'});tick();setTimeout(list,400)};
 async function list(){const f=await (await fetch('/api/list')).json();
 const el=$('list');if(el.contains(document.activeElement)||[...el.querySelectorAll('audio')].some(a=>!a.paused))return;
-el.innerHTML=f.length?f.map(r=>`<div class="file"><span>${r.name}${r.played?'':' <b class="new">новая</b>'}</span><audio controls preload="none" src="/rec/${r.name}" data-n="${r.name}"></audio></div>`).join(''):'пока нет';
+el.innerHTML=f.length?f.map(r=>`<div class="file"><span>${r.name}${r.played?'':' <b class="new">'+t('newRec')+'</b>'}</span><audio controls preload="none" src="/rec/${r.name}" data-n="${r.name}"></audio></div>`).join(''):t('none');
 el.querySelectorAll('audio').forEach(a=>a.addEventListener('play',()=>fetch('/api/mark/'+a.dataset.n,{method:'POST'}),{once:true}))}
-setInterval(tick,250);setInterval(list,4000);tick();list();
+document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{L=b.dataset.lang;try{localStorage.setItem('lang',L)}catch(e){}applyLang();voices();sounds();tick();$('list').innerHTML='';list()});
+applyLang();setInterval(tick,250);setInterval(list,4000);tick();list();
 </script></html>
