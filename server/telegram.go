@@ -452,7 +452,7 @@ func (t *telegram) handle(m *tgMessage) {
 			t.say(chat, thread, "Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.")
 			return
 		}
-		pcm, err := speak(text)
+		pcm, err := t.srv.speak(text)
 		if err != nil {
 			t.say(chat, thread, "Не получилось озвучить: "+err.Error())
 			log.Println("telegram: text to speech failed -", err)

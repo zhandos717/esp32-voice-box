@@ -29,7 +29,70 @@ func piperConfigured() bool { return env("PIPER", "") != "" && env("PIPER_MODEL"
 func ttsConfigured() bool   { return azureConfigured() || piperConfigured() }
 
 // speak turns text into 16 kHz mono PCM, the same as a decoded voice message.
-func speak(text string) ([]byte, error) {
+type voicePreset struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Kazakh bool   `json:"kk"`
+	Voice  string `json:"voice"`
+	Pitch  string `json:"pitch,omitempty"`
+	Rate   string `json:"rate,omitempty"`
+	Effect string `json:"effect,omitempty"`
+}
+
+// The same voices as the sample page; picked in the web page, stored in settings.json.
+var voicePresets = []voicePreset{
+	{ID: "svetlana", Name: "Светлана", Voice: "ru-RU-SvetlanaNeural"},
+	{ID: "dmitry", Name: "Дмитрий", Voice: "ru-RU-DmitryNeural"},
+	{ID: "ava", Name: "Ava (многоязычный)", Voice: "en-US-AvaMultilingualNeural"},
+	{ID: "andrew", Name: "Andrew (многоязычный)", Voice: "en-US-AndrewMultilingualNeural"},
+	{ID: "fairy", Name: "Фея", Voice: "ru-RU-SvetlanaNeural", Pitch: "+45Hz", Rate: "+15%"},
+	{ID: "gnome", Name: "Гномик", Voice: "ru-RU-DmitryNeural", Pitch: "+40Hz", Rate: "+25%"},
+	{ID: "bear", Name: "Медведь", Voice: "ru-RU-DmitryNeural", Pitch: "-25Hz", Rate: "-15%"},
+	{ID: "robot", Name: "Робот", Voice: "ru-RU-DmitryNeural", Effect: "robot"},
+	{ID: "chipmunk-light", Name: "Бурундук лёгкий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-light"},
+	{ID: "chipmunk-high", Name: "Бурундук высокий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-high"},
+	{ID: "chipmunk", Name: "Бурундук: октава, носовой", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk"},
+	{ID: "chipmunk-bright", Name: "Бурундук звонкий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-bright"},
+	{ID: "chipmunk-boy", Name: "Мальчик-бурундук", Voice: "ru-RU-DmitryNeural", Effect: "chipmunk"},
+	{ID: "aigul", Name: "Айгуль", Kazakh: true, Voice: "kk-KZ-AigulNeural"},
+	{ID: "daulet", Name: "Даулет", Kazakh: true, Voice: "kk-KZ-DauletNeural"},
+	{ID: "aigul-chipmunk", Name: "Айгуль-бурундук", Kazakh: true, Voice: "kk-KZ-AigulNeural", Effect: "chipmunk"},
+	{ID: "daulet-chipmunk", Name: "Даулет-бурундук", Kazakh: true, Voice: "kk-KZ-DauletNeural", Effect: "chipmunk"},
+}
+
+func findPreset(id string, kk bool) (voicePreset, bool) {
+	for _, p := range voicePresets {
+		if p.ID == id && p.Kazakh == kk {
+			return p, true
+		}
+	}
+	return voicePreset{}, false
+}
+
+// voiceFor: the preset picked in the web page, otherwise what .env says.
+func (s *server) voiceFor(kk bool) voicePreset {
+	id := ""
+	if s != nil {
+		s.mu.Lock()
+		id = map[bool]string{false: s.sounds.VoiceRu, true: s.sounds.VoiceKk}[kk]
+		s.mu.Unlock()
+	}
+	if p, ok := findPreset(id, kk); ok {
+		return p
+	}
+	p := voicePreset{Kazakh: kk, Voice: env("AZURE_SPEECH_VOICE", "ru-RU-SvetlanaNeural"),
+		Pitch: ttsSetting("TTS_PITCH", kk), Rate: ttsSetting("TTS_RATE", kk), Effect: ttsSetting("TTS_EFFECT", kk)}
+	if kk {
+		p.Voice = env("AZURE_SPEECH_VOICE_KK", "kk-KZ-AigulNeural")
+	}
+	return p
+}
+
+func (s *server) speak(text string) ([]byte, error) {
+	return s.speakAs(text, s.voiceFor(isKazakh(text)))
+}
+
+func (s *server) speakAs(text string, p voicePreset) ([]byte, error) {
 	text = strings.TrimSpace(text)
 	if r := []rune(text); len(r) > maxTTSRunes {
 		text = string(r[:maxTTSRunes])
@@ -38,7 +101,7 @@ func speak(text string) ([]byte, error) {
 	var err error
 	switch {
 	case azureConfigured():
-		pcm, err = speakAzure(text, isKazakh(text))
+		pcm, err = speakAzure(text, p)
 	case piperConfigured():
 		pcm, err = speakPiper(text)
 	default:
@@ -47,7 +110,7 @@ func speak(text string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return voiceEffect(pcm, ttsSetting("TTS_EFFECT", isKazakh(text)))
+	return voiceEffect(pcm, p.Effect)
 }
 
 var voiceEffects = map[string]string{
@@ -82,11 +145,8 @@ func voiceEffect(pcm []byte, name string) ([]byte, error) {
 }
 
 // speakAzure: REST text-to-speech; the requested format is already 16 kHz 16-bit mono WAV.
-func speakAzure(text string, kk bool) ([]byte, error) {
-	voice := env("AZURE_SPEECH_VOICE", "ru-RU-SvetlanaNeural")
-	if kk {
-		voice = env("AZURE_SPEECH_VOICE_KK", "kk-KZ-AigulNeural")
-	}
+func speakAzure(text string, p voicePreset) ([]byte, error) {
+	voice := p.Voice
 	lang := voice
 	if parts := strings.SplitN(voice, "-", 3); len(parts) == 3 {
 		lang = parts[0] + "-" + parts[1]
@@ -94,7 +154,7 @@ func speakAzure(text string, kk bool) ([]byte, error) {
 	var esc bytes.Buffer
 	xml.EscapeText(&esc, []byte(text))
 	inner := esc.String()
-	if pitch, rate := ttsSetting("TTS_PITCH", kk), ttsSetting("TTS_RATE", kk); pitch != "" || rate != "" {
+	if pitch, rate := p.Pitch, p.Rate; pitch != "" || rate != "" {
 		attr := func(k, v string) string {
 			if v == "" {
 				return ""

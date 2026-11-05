@@ -27,7 +27,7 @@ func TestSpeak(t *testing.T) {
 	}
 	t.Setenv("PIPER", fake)
 	t.Setenv("PIPER_MODEL", "ru.onnx")
-	pcm, err := speak("  Привет, коробка!  ")
+	pcm, err := (*server)(nil).speak("  Привет, коробка!  ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestSpeak(t *testing.T) {
 		t.Fatalf("piper got %q", got)
 	}
 	t.Setenv("PIPER", "")
-	if _, err := speak("x"); err != errNoTTS {
+	if _, err := (*server)(nil).speak("x"); err != errNoTTS {
 		t.Fatalf("unconfigured: %v", err)
 	}
 }
@@ -63,11 +63,11 @@ func TestSpeakAzure(t *testing.T) {
 	t.Setenv("AZURE_SPEECH_ENDPOINT", srv.URL)
 	t.Setenv("AZURE_SPEECH_VOICE", "ru-RU-DmitryNeural")
 	t.Setenv("AZURE_SPEECH_VOICE_KK", "kk-KZ-DauletNeural")
-	speak("Привет, мама")
+	(*server)(nil).speak("Привет, мама")
 	if !strings.Contains(gotBody, `name="ru-RU-DmitryNeural"`) {
 		t.Fatalf("russian text: %s", gotBody)
 	}
-	pcm, err := speak("Сәлем <мама> & папа")
+	pcm, err := (*server)(nil).speak("Сәлем <мама> & папа")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,17 +78,17 @@ func TestSpeakAzure(t *testing.T) {
 		t.Fatalf("prosody without TTS_PITCH: %s", gotBody)
 	}
 	t.Setenv("TTS_PITCH", "+40Hz")
-	if _, err := speak("x"); err != nil || !strings.Contains(gotBody, `<prosody pitch="+40Hz">x</prosody>`) {
+	if _, err := (*server)(nil).speak("x"); err != nil || !strings.Contains(gotBody, `<prosody pitch="+40Hz">x</prosody>`) {
 		t.Fatalf("pitch: %v %s", err, gotBody)
 	}
 	t.Setenv("TTS_PITCH", "")
-	speak("Сәлем <мама> & папа")
+	(*server)(nil).speak("Сәлем <мама> & папа")
 	if !strings.Contains(gotBody, `name="kk-KZ-DauletNeural"`) || !strings.Contains(gotBody, `xml:lang="kk-KZ"`) || !strings.Contains(gotBody, "&lt;мама&gt; &amp; папа") {
 		t.Fatalf("ssml %s", gotBody)
 	}
 	t.Setenv("AZURE_SPEECH_KEY", "bad")
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) })
-	if _, err := speak("x"); err == nil || !strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "bad") {
+	if _, err := (*server)(nil).speak("x"); err == nil || !strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "bad") {
 		t.Fatalf("auth error: %v", err)
 	}
 }
