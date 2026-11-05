@@ -128,3 +128,30 @@ func TestTTSSettingKazakh(t *testing.T) {
 		t.Fatal("no _KK value must fall back to the common one")
 	}
 }
+
+// A stand-in for edge-tts: checks the arguments and copies a prepared WAV to --write-media.
+func TestSpeakEdge(t *testing.T) {
+	if findFFmpeg() == "" {
+		t.Skip("no ffmpeg")
+	}
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "voice.wav")
+	writeWAV(wav, make([]byte, 24000*2), 24000)
+	args := filepath.Join(dir, "args")
+	fake := filepath.Join(dir, "edge-tts")
+	script := "#!/bin/sh\necho \"$@\" >" + args + "\nwhile [ $# -gt 0 ]; do [ \"$1\" = --write-media ] && cp " + wav + " \"$2\"; shift; done\n"
+	os.WriteFile(fake, []byte(script), 0o755)
+	t.Setenv("AZURE_SPEECH_KEY", "")
+	t.Setenv("EDGE_TTS", fake)
+	pcm, err := (*server)(nil).speakAs("Привет", voicePreset{Voice: "ru-RU-SvetlanaNeural", Pitch: "-25Hz", Rate: "+15%"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(pcm) / 2; n < 15900 || n > 16100 {
+		t.Fatalf("got %d samples", n)
+	}
+	got, _ := os.ReadFile(args)
+	if !strings.Contains(string(got), "--voice ru-RU-SvetlanaNeural") || !strings.Contains(string(got), "--pitch=-25Hz") || !strings.Contains(string(got), "--rate=+15%") {
+		t.Fatalf("args %s", got)
+	}
+}

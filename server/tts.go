@@ -15,18 +15,21 @@ import (
 )
 
 // Text messages are read aloud. Azure AI Speech (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_SPEECH_VOICE) wins;
-// otherwise Piper (github.com/rhasspy/piper) offline on this machine: PIPER = the program, PIPER_MODEL = the voice .onnx.
+// otherwise EDGE_TTS = the edge-tts program (github.com/rany2/edge-tts: the same voices through Edge's read-aloud service,
+// unofficial, may stop working any day; fine for a hobby box), otherwise Piper (github.com/rhasspy/piper) offline:
+// PIPER = the program, PIPER_MODEL = the voice .onnx.
 // TTS_PITCH / TTS_RATE (Azure only, e.g. +40Hz, -15%) and TTS_EFFECT (chipmunk, robot) make a cartoon voice.
 // Kazakh text may have its own: TTS_PITCH_KK, TTS_RATE_KK, TTS_EFFECT_KK ("none" switches the common one off).
 const maxTTSRunes = 1000
 
-var errNoTTS = errors.New("синтез речи не настроен (AZURE_SPEECH_KEY или PIPER в .env)")
+var errNoTTS = errors.New("синтез речи не настроен (AZURE_SPEECH_KEY, EDGE_TTS или PIPER в .env)")
 
 func azureConfigured() bool {
 	return env("AZURE_SPEECH_KEY", "") != "" && env("AZURE_SPEECH_REGION", "") != ""
 }
+func edgeConfigured() bool  { return env("EDGE_TTS", "") != "" }
 func piperConfigured() bool { return env("PIPER", "") != "" && env("PIPER_MODEL", "") != "" }
-func ttsConfigured() bool   { return azureConfigured() || piperConfigured() }
+func ttsConfigured() bool   { return azureConfigured() || edgeConfigured() || piperConfigured() }
 
 // speak turns text into 16 kHz mono PCM, the same as a decoded voice message.
 type voicePreset struct {
@@ -102,6 +105,8 @@ func (s *server) speakAs(text string, p voicePreset) ([]byte, error) {
 	switch {
 	case azureConfigured():
 		pcm, err = speakAzure(text, p)
+	case edgeConfigured():
+		pcm, err = speakEdge(text, p)
 	case piperConfigured():
 		pcm, err = speakPiper(text)
 	default:
@@ -192,6 +197,38 @@ func speakAzure(text string, p voicePreset) ([]byte, error) {
 		return nil, fmt.Errorf("azure: ответ не WAV")
 	}
 	return pcm, nil
+}
+
+func speakEdge(text string, p voicePreset) ([]byte, error) {
+	dir, err := os.MkdirTemp("", "edge-tts-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	in, out := dir+"/text.txt", dir+"/speech.mp3"
+	if err := os.WriteFile(in, []byte(text), 0o600); err != nil {
+		return nil, err
+	}
+	args := []string{"--voice", p.Voice, "--file", in, "--write-media", out}
+	if p.Pitch != "" {
+		args = append(args, "--pitch="+p.Pitch) // "=": a value like -25Hz must not look like a flag
+	}
+	if p.Rate != "" {
+		args = append(args, "--rate="+p.Rate)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, env("EDGE_TTS", ""), args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("edge-tts: %v %s", err, lastLine(stderr.String()))
+	}
+	mp3, err := os.ReadFile(out)
+	if err != nil {
+		return nil, err
+	}
+	return decodeToPCM(mp3)
 }
 
 func speakPiper(text string) ([]byte, error) {

@@ -48,7 +48,8 @@ Windows при первом запуске спросит разрешение �
 | `MIC_REMIND_SECONDS` | как часто напоминать звуком о непрослушанных (5 с, 0 = выключено) |
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_SPEECH_VOICE` | озвучка текстовых сообщений голосом Microsoft (без них текст не принимается) |
 | `TTS_PITCH`, `TTS_RATE`, `TTS_EFFECT` | мультяшный голос: высота и темп (Azure), эффект `chipmunk` или `robot` |
-| `PIPER`, `PIPER_MODEL` | озвучка без облака через Piper, если Azure не задан |
+| `EDGE_TTS` | путь к edge-tts: голоса Microsoft без ключа, неофициально, для домашнего использования |
+| `PIPER`, `PIPER_MODEL` | озвучка без облака через Piper, если не заданы Azure и edge-tts |
 
 Подробнее: [Telegram](docs/telegram.md) · [протокол](docs/protocol.md) · [если не работает](docs/troubleshooting.md).
 
