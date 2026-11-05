@@ -41,6 +41,8 @@ type server struct {
 	teleAt, connectedAt     time.Time
 	lastGone                time.Time
 	connects                int // board connections since the server started
+	recSamples, releasedAt  int // samples in the running recording; where the button was let go (0 = still held)
+	tailGen                 int // a press or a release cancels the pending end of the previous release
 	recording               bool
 	level                   int
 	chimePending            bool // a new Telegram message has not been announced by the board yet (it acknowledges with frame 6)
@@ -72,6 +74,9 @@ func main() {
 	}
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		log.Fatal(err)
+	}
+	if v, err := strconv.Atoi(env("MIC_TAIL_MS", "")); err == nil && v >= 0 {
+		recordTail = time.Duration(v) * time.Millisecond
 	}
 	if v, err := strconv.Atoi(env("MIC_MAX_SECONDS", "")); err == nil && v > 0 {
 		maxRecording = time.Duration(v) * time.Second
