@@ -111,3 +111,20 @@ func TestVoiceEffect(t *testing.T) {
 		t.Fatal("unknown effect accepted")
 	}
 }
+
+func TestTTSSettingKazakh(t *testing.T) {
+	t.Setenv("TTS_PITCH", "+45Hz")
+	t.Setenv("TTS_EFFECT", "")
+	t.Setenv("TTS_PITCH_KK", "none")
+	t.Setenv("TTS_EFFECT_KK", "chipmunk")
+	if ttsSetting("TTS_PITCH", false) != "+45Hz" || ttsSetting("TTS_PITCH", true) != "" {
+		t.Fatal("pitch per language")
+	}
+	if ttsSetting("TTS_EFFECT", false) != "" || ttsSetting("TTS_EFFECT", true) != "chipmunk" {
+		t.Fatal("effect per language")
+	}
+	t.Setenv("TTS_RATE", "+15%")
+	if ttsSetting("TTS_RATE", true) != "+15%" {
+		t.Fatal("no _KK value must fall back to the common one")
+	}
+}

@@ -17,6 +17,7 @@ import (
 // Text messages are read aloud. Azure AI Speech (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_SPEECH_VOICE) wins;
 // otherwise Piper (github.com/rhasspy/piper) offline on this machine: PIPER = the program, PIPER_MODEL = the voice .onnx.
 // TTS_PITCH / TTS_RATE (Azure only, e.g. +40Hz, -15%) and TTS_EFFECT (chipmunk, robot) make a cartoon voice.
+// Kazakh text may have its own: TTS_PITCH_KK, TTS_RATE_KK, TTS_EFFECT_KK ("none" switches the common one off).
 const maxTTSRunes = 1000
 
 var errNoTTS = errors.New("синтез речи не настроен (AZURE_SPEECH_KEY или PIPER в .env)")
@@ -37,7 +38,7 @@ func speak(text string) ([]byte, error) {
 	var err error
 	switch {
 	case azureConfigured():
-		pcm, err = speakAzure(text)
+		pcm, err = speakAzure(text, isKazakh(text))
 	case piperConfigured():
 		pcm, err = speakPiper(text)
 	default:
@@ -46,7 +47,7 @@ func speak(text string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return voiceEffect(pcm, env("TTS_EFFECT", ""))
+	return voiceEffect(pcm, ttsSetting("TTS_EFFECT", isKazakh(text)))
 }
 
 var voiceEffects = map[string]string{
@@ -81,9 +82,9 @@ func voiceEffect(pcm []byte, name string) ([]byte, error) {
 }
 
 // speakAzure: REST text-to-speech; the requested format is already 16 kHz 16-bit mono WAV.
-func speakAzure(text string) ([]byte, error) {
+func speakAzure(text string, kk bool) ([]byte, error) {
 	voice := env("AZURE_SPEECH_VOICE", "ru-RU-SvetlanaNeural")
-	if isKazakh(text) {
+	if kk {
 		voice = env("AZURE_SPEECH_VOICE_KK", "kk-KZ-AigulNeural")
 	}
 	lang := voice
@@ -93,7 +94,7 @@ func speakAzure(text string) ([]byte, error) {
 	var esc bytes.Buffer
 	xml.EscapeText(&esc, []byte(text))
 	inner := esc.String()
-	if pitch, rate := env("TTS_PITCH", ""), env("TTS_RATE", ""); pitch != "" || rate != "" {
+	if pitch, rate := ttsSetting("TTS_PITCH", kk), ttsSetting("TTS_RATE", kk); pitch != "" || rate != "" {
 		attr := func(k, v string) string {
 			if v == "" {
 				return ""
@@ -167,4 +168,18 @@ func lastLine(s string) string {
 // isKazakh: letters of the Kazakh Cyrillic alphabet that Russian lacks.
 func isKazakh(text string) bool {
 	return strings.ContainsAny(text, "әғқңөұүһіӘҒҚҢӨҰҮҺІ")
+}
+
+// ttsSetting: the Kazakh variant of a setting wins for Kazakh text; "none" means off.
+func ttsSetting(key string, kk bool) string {
+	v := env(key, "")
+	if kk {
+		if k := env(key+"_KK", ""); k != "" {
+			v = k
+		}
+	}
+	if v == "none" {
+		return ""
+	}
+	return v
 }
