@@ -85,3 +85,27 @@ func TestTrimSilenceTinyRate(t *testing.T) {
 		t.Fatal("changed")
 	}
 }
+
+func TestDuckEarlyClick(t *testing.T) {
+	rate := 16000
+	x := make([]float64, rate)
+	for i := range x {
+		x[i] = 50 * math.Sin(float64(i))
+	}
+	at := prerollSamples
+	from, to := at-150*rate/1000, at-90*rate/1000 // a 60 ms click 150 ms before the reported press
+	for i := from; i < to; i++ {
+		x[i] = 20000 * math.Sin(2*math.Pi*900*float64(i)/float64(rate))
+	}
+	duckClick(x, rate)
+	var peak float64
+	for _, v := range x[from:to] {
+		peak = math.Max(peak, math.Abs(v))
+	}
+	if peak > 20000*duckFloor*1.5 {
+		t.Fatalf("early click kept: peak %.0f", peak)
+	}
+	if math.Abs(x[at+300*rate/1000]) > 60 || x[100] == 0 {
+		t.Fatal("audio outside the click was changed")
+	}
+}
