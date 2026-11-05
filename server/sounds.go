@@ -23,8 +23,10 @@ var bootSounds = []soundInfo{
 }
 
 type soundSettings struct {
-	Notify int `json:"notify"`
-	Boot   int `json:"boot"`
+	Notify  int    `json:"notify"`
+	Boot    int    `json:"boot"`
+	VoiceRu string `json:"voiceRu,omitempty"` // voice preset for text messages; empty = the .env settings
+	VoiceKk string `json:"voiceKk,omitempty"`
 }
 
 func (s *server) settingsFile() string { return filepath.Join(s.recDir, "settings.json") }

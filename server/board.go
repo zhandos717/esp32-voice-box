@@ -172,6 +172,17 @@ func (s *server) playNext(c net.Conn) {
 	}
 	pcm = normalize(pcm)
 	log.Printf("playing on the board: %s %.1f s%s", name, float64(len(pcm))/32000, map[bool]string{true: " (repeat)", false: ""}[replay])
+	if s.write(c, s.playMsg(pcm)) == nil && !replay { // blocks until the board has taken it
+		s.markPlayed(name)
+		s.write(c, s.unplayedMsg())
+		if s.tg != nil {
+			go s.tg.heard(name) // tell the Telegram sender their voice message was played
+		}
+	}
+}
+
+// playMsg frames PCM for the board: ADPCM when it understands it.
+func (s *server) playMsg(pcm []byte) []byte {
 	s.mu.Lock()
 	compress := s.adpcm
 	s.mu.Unlock()
@@ -182,14 +193,7 @@ func (s *server) playNext(c net.Conn) {
 	msg := make([]byte, 5, 5+len(body))
 	msg[0] = kind
 	binary.LittleEndian.PutUint32(msg[1:], uint32(len(body)))
-	msg = append(msg, body...)
-	if s.write(c, msg) == nil && !replay { // blocks until the board has taken it
-		s.markPlayed(name)
-		s.write(c, s.unplayedMsg())
-		if s.tg != nil {
-			go s.tg.heard(name) // tell the Telegram sender their voice message was played
-		}
-	}
+	return append(msg, body...)
 }
 
 func (s *server) handleConn(c net.Conn) {

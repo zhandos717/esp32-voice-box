@@ -195,6 +195,58 @@ func (s *server) web() http.Handler {
 		}
 		jsonOut(w, map[string]any{"ok": true})
 	})
+	mux.HandleFunc("/api/voices", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		cur := map[string]string{"ru": s.sounds.VoiceRu, "kk": s.sounds.VoiceKk}
+		s.mu.Unlock()
+		jsonOut(w, map[string]any{"presets": voicePresets, "current": cur, "ready": ttsConfigured(), "azure": azureConfigured()})
+	})
+	mux.HandleFunc("/api/voice/select", func(w http.ResponseWriter, r *http.Request) { // id "" = back to the .env settings
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		kk, id := r.URL.Query().Get("lang") == "kk", r.URL.Query().Get("id")
+		if _, ok := findPreset(id, kk); id != "" && !ok {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		s.mu.Lock()
+		if kk {
+			s.sounds.VoiceKk = id
+		} else {
+			s.sounds.VoiceRu = id
+		}
+		s.saveSettings()
+		s.mu.Unlock()
+		jsonOut(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/voice/test", func(w http.ResponseWriter, r *http.Request) { // say a sample phrase on the board right away
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		kk := r.URL.Query().Get("lang") == "kk"
+		p := s.voiceFor(kk)
+		if id := r.URL.Query().Get("id"); id != "" {
+			var ok bool
+			if p, ok = findPreset(id, kk); !ok {
+				http.Error(w, "bad id", http.StatusBadRequest)
+				return
+			}
+		}
+		text := map[bool]string{false: "Привет! Это проверка голоса коробки.", true: "Сәлем! Бұл қораптың дауысын тексеру."}[kk]
+		pcm, err := s.speakAs(text, p)
+		if err != nil {
+			jsonOut(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		if err := s.send(s.playMsg(normalize(pcm))); err != nil {
+			jsonOut(w, map[string]any{"ok": false, "error": "ESP32 не подключена"})
+			return
+		}
+		jsonOut(w, map[string]any{"ok": true})
+	})
 	mux.HandleFunc("/api/sound/select", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)

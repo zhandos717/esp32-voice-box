@@ -46,6 +46,10 @@ Windows при первом запуске спросит разрешение �
 | `TELEGRAM_THREAD_ID` | номер топика группы-форума (команда `/id` в топике), пусто если топиков нет |
 | `MIC_REC_DIR`, `MIC_GAIN`, `MIC_MAX_SECONDS`, `FFMPEG` | папка записей, усиление (4), предел записи (300 с), путь к ffmpeg |
 | `MIC_REMIND_SECONDS` | как часто напоминать звуком о непрослушанных (5 с, 0 = выключено) |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_SPEECH_VOICE` | озвучка текстовых сообщений голосом Microsoft (без них текст не принимается) |
+| `TTS_PITCH`, `TTS_RATE`, `TTS_EFFECT` | мультяшный голос: высота и темп (Azure), эффект `chipmunk` или `robot` |
+| `EDGE_TTS` | путь к edge-tts: голоса Microsoft без ключа, неофициально, для домашнего использования |
+| `PIPER`, `PIPER_MODEL` | озвучка без облака через Piper, если не заданы Azure и edge-tts |
 
 Подробнее: [Telegram](docs/telegram.md) · [протокол](docs/protocol.md) · [если не работает](docs/troubleshooting.md).
 
