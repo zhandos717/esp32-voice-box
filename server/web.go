@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -198,8 +199,13 @@ func (s *server) web() http.Handler {
 	mux.HandleFunc("/api/voices", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		cur := map[string]string{"ru": s.sounds.VoiceRu, "kk": s.sounds.VoiceKk}
+		senders := []map[string]string{}
+		for id, v := range s.sounds.Senders {
+			senders = append(senders, map[string]string{"id": id, "name": v.Name, "ru": v.VoiceRu, "kk": v.VoiceKk})
+		}
 		s.mu.Unlock()
-		jsonOut(w, map[string]any{"presets": voicePresets, "current": cur, "ready": ttsConfigured(), "azure": azureConfigured()})
+		sort.Slice(senders, func(i, j int) bool { return senders[i]["name"] < senders[j]["name"] })
+		jsonOut(w, map[string]any{"presets": voicePresets, "current": cur, "senders": senders, "ready": ttsConfigured(), "azure": azureConfigured()})
 	})
 	mux.HandleFunc("/api/voice/select", func(w http.ResponseWriter, r *http.Request) { // id "" = back to the .env settings
 		if r.Method != http.MethodPost {
@@ -211,12 +217,22 @@ func (s *server) web() http.Handler {
 			http.Error(w, "bad id", http.StatusBadRequest)
 			return
 		}
+		user := r.URL.Query().Get("user") // a sender's own voice; empty = the default for everyone
 		s.mu.Lock()
+		target := &s.sounds.VoiceRu
 		if kk {
-			s.sounds.VoiceKk = id
-		} else {
-			s.sounds.VoiceRu = id
+			target = &s.sounds.VoiceKk
 		}
+		if user != "" {
+			v := s.sounds.Senders[user]
+			if v == nil {
+				s.mu.Unlock()
+				http.Error(w, "unknown sender", http.StatusBadRequest)
+				return
+			}
+			target = map[bool]*string{false: &v.VoiceRu, true: &v.VoiceKk}[kk]
+		}
+		*target = id
 		s.saveSettings()
 		s.mu.Unlock()
 		jsonOut(w, map[string]any{"ok": true})
@@ -227,7 +243,7 @@ func (s *server) web() http.Handler {
 			return
 		}
 		kk := r.URL.Query().Get("lang") == "kk"
-		p := s.voiceFor(kk)
+		p := s.voiceFor(kk, 0)
 		if id := r.URL.Query().Get("id"); id != "" {
 			var ok bool
 			if p, ok = findPreset(id, kk); !ok {

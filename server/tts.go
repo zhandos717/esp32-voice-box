@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -72,12 +73,17 @@ func findPreset(id string, kk bool) (voicePreset, bool) {
 	return voicePreset{}, false
 }
 
-// voiceFor: the preset picked in the web page, otherwise what .env says.
-func (s *server) voiceFor(kk bool) voicePreset {
+// voiceFor: the sender's own voice, otherwise the one picked in the web page, otherwise what .env says.
+func (s *server) voiceFor(kk bool, sender int64) voicePreset {
 	id := ""
 	if s != nil {
 		s.mu.Lock()
 		id = map[bool]string{false: s.sounds.VoiceRu, true: s.sounds.VoiceKk}[kk]
+		if v := s.sounds.Senders[strconv.FormatInt(sender, 10)]; v != nil {
+			if own := map[bool]string{false: v.VoiceRu, true: v.VoiceKk}[kk]; own != "" {
+				id = own
+			}
+		}
 		s.mu.Unlock()
 	}
 	if p, ok := findPreset(id, kk); ok {
@@ -92,7 +98,7 @@ func (s *server) voiceFor(kk bool) voicePreset {
 }
 
 func (s *server) speak(text string) ([]byte, error) {
-	return s.speakAs(text, s.voiceFor(isKazakh(text)))
+	return s.speakAs(text, s.voiceFor(isKazakh(text), 0))
 }
 
 func (s *server) speakAs(text string, p voicePreset) ([]byte, error) {

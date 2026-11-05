@@ -15,6 +15,8 @@ audio{width:100%}.file{display:grid;gap:4px;padding-top:8px;border-top:1px solid
 .new{color:var(--acc);font-size:12px;margin-left:6px}
 .lamp{display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:8px}.lamp i{width:22px;height:22px;border-radius:50%;background:var(--line);border:1px solid var(--mut);display:inline-block}.lamp i.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
 button.led{background:var(--card);color:var(--fg);border-color:var(--line)}button.led.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.person{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:8px}.person b{overflow-wrap:anywhere}.person select{font:inherit;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);min-width:0}
+@media(max-width:480px){.person{grid-template-columns:1fr}}
 .vrow{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:8px;align-items:center}.vrow select{font:inherit;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);min-width:0}
 @media(max-width:480px){.vrow{grid-template-columns:1fr}}
 .tele{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.tele div{padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}.tele small{display:block;color:var(--mut);font-size:12px}.tele b{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.tele .bad b{color:var(--rec)}
@@ -43,6 +45,7 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 <label class="vrow"><span>Русский</span><select id="vRu"></select><button class="led" id="tRu">Прослушать на коробке</button></label>
 <label class="vrow"><span>Казахский</span><select id="vKk"></select><button class="led" id="tKk">Прослушать на коробке</button></label>
 <span class="mut" id="vMsg"></span>
+<div><b>Свой голос для каждого</b><div class="mut">Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.</div><div id="vPeople" class="snds"></div></div>
 </section>
 <section class="card">
 <strong>Прошивка платы</strong>
@@ -102,6 +105,13 @@ for(const [lang,el] of [['ru',$('vRu')],['kk',$('vKk')]]){const kk=lang==='kk';
 el.innerHTML='<option value="">как в настройках сервера (.env)</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
 el.value=d.current[lang]||'';
 el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?'Сохранено':'Не сохранилось'}}
+const opts=(kk,dflt)=>'<option value="">'+dflt+'</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
+const esc=t=>String(t).replace(/[<&"]/g,c=>({'<':'&lt;','&':'&amp;','"':'&quot;'}[c]));
+$('vPeople').innerHTML=d.senders.length?d.senders.map(p=>'<div class="person"><b>'+esc(p.name||('id '+p.id))+'</b>'+
+'<select id="pr-'+p.id+'" aria-label="Русский голос: '+esc(p.name)+'">'+opts(false,'русский: по умолчанию')+'</select>'+
+'<select id="pk-'+p.id+'" aria-label="Казахский голос: '+esc(p.name)+'">'+opts(true,'казахский: по умолчанию')+'</select></div>').join(''):'<span class="mut">Пока никто не писал.</span>';
+for(const p of d.senders)for(const [lang,el] of [['ru',$('pr-'+p.id)],['kk',$('pk-'+p.id)]]){el.value=p[lang]||'';
+el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&user='+p.id+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?'Сохранено для '+(p.name||p.id):'Не сохранилось'}}
 if(!d.ready)$('vNote').textContent='Синтез речи ещё не настроен на сервере: нужны AZURE_SPEECH_KEY и AZURE_SPEECH_REGION в .env. Голос можно выбрать заранее.';
 for(const [lang,b,sel] of [['ru',$('tRu'),$('vRu')],['kk',$('tKk'),$('vKk')]])b.onclick=async e=>{e.preventDefault();$('vMsg').textContent='Озвучиваю…';
 const r=await (await fetch('/api/voice/test?lang='+lang+'&id='+encodeURIComponent(sel.value),{method:'POST'})).json();$('vMsg').textContent=r.ok?'Играет на коробке':r.error}}
