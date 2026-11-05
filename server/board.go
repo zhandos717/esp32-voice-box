@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -224,6 +225,8 @@ func (s *server) handleConn(c net.Conn) {
 	}
 	s.conn, s.connected, s.peer, s.rate, s.adpcm = c, true, c.RemoteAddr().String(), rate, adpcm
 	s.btnRec, s.btnNext = false, false // a new connection starts with released buttons
+	s.connectedAt, s.tele = time.Now(), nil
+	s.connects++
 	s.mu.Unlock()
 	log.Println("ESP32 connected", c.RemoteAddr(), rate, "Hz", map[bool]string{true: "ADPCM", false: "PCM"}[adpcm])
 	if s.tg != nil {
@@ -242,6 +245,7 @@ func (s *server) handleConn(c net.Conn) {
 		gone := s.conn == c // false when a newer connection has already replaced this one
 		if gone {
 			s.conn, s.connected, s.level, s.rssi = nil, false, 0, 0
+			s.lastGone = time.Now()
 			s.btnRec, s.btnNext = false, false
 		}
 		s.mu.Unlock()
@@ -308,6 +312,13 @@ func (s *server) handleConn(c net.Conn) {
 				s.nextPresses++
 			}
 			s.mu.Unlock()
+		case 10: // telemetry, JSON
+			var t map[string]any
+			if json.Unmarshal(payload, &t) == nil {
+				s.mu.Lock()
+				s.tele, s.teleAt = t, time.Now()
+				s.mu.Unlock()
+			}
 		case 9: // "I am alive" while the board is busy (long playback, update); reading it renews the deadline
 		case 6: // the board has played the new-message chime
 			log.Println("board: chime played")

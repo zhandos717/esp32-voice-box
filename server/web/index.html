@@ -15,6 +15,7 @@ audio{width:100%}.file{display:grid;gap:4px;padding-top:8px;border-top:1px solid
 .new{color:var(--acc);font-size:12px;margin-left:6px}
 .lamp{display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:8px}.lamp i{width:22px;height:22px;border-radius:50%;background:var(--line);border:1px solid var(--mut);display:inline-block}.lamp i.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
 button.led{background:var(--card);color:var(--fg);border-color:var(--line)}button.led.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.tele{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.tele div{padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}.tele small{display:block;color:var(--mut);font-size:12px}.tele b{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.tele .bad b{color:var(--rec)}
 .snds{display:grid;gap:6px;margin-top:8px}.snd{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}.snd.cur{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent)}.snd span{flex:1}.snd button{padding:6px 12px}
 </style>
 <main>
@@ -25,8 +26,12 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 <div class="row"><button id="btn" disabled>Записать</button><span id="time" class="mut"></span></div>
 </section>
 <section class="card">
+<div class="row"><strong>Телеметрия платы</strong><span class="mut" id="teleAge"></span></div>
+<div class="tele" id="tele"><span class="mut">ждём первый отчёт платы (раз в 15 с)</span></div>
+</section>
+<section class="card">
 <strong>Звуки</strong>
-<div class="mut">«▶» играет на плате, «Выбрать» запоминает. Сигнал о сообщении повторяется через 4 секунды тише.</div>
+<div class="mut">«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.</div>
 <div><b>Сигнал о новом сообщении</b><div id="sndNotify" class="snds"></div></div>
 <div><b>Звук при включении</b><div id="sndBoot" class="snds"></div></div>
 </section>
@@ -58,7 +63,24 @@ if((await fetch("/api/status")).status===401&&(await fetch("/auth",{method:"POST
 </script>
 <script>
 const $=id=>document.getElementById(id);let rec=false;
-async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;
+const dur=x=>x==null?'—':x<60?x+' с':x<3600?Math.floor(x/60)+' мин':Math.floor(x/3600)+' ч '+Math.floor(x%3600/60)+' мин';
+const kb=x=>x==null?'—':(x/1024).toFixed(0)+' КБ';
+function tele(s){const t=s.tele||{};const rows=[
+['Сигнал Wi-Fi',t.rssi!=null?t.rssi+' dBm':'—',t.rssi<-80],['Канал / точка',t.channel!=null?t.channel+' · '+t.bssid:'—'],
+['Мощность передатчика',t.txPower!=null?t.txPower+' дБм':'—'],['IP платы',t.ip||'—'],
+['Работает без перезагрузки',dur(t.uptime)],['Причина последней перезагрузки',t.reset||'—',t.reset&&/wdt|panic|brownout/.test(t.reset)],
+['Связь с сервером',s.connected?dur(s.connectedFor):'нет',!s.connected],['Подключений к серверу',(t.serverConnects??'—')+' / '+s.connects],
+['Обрывов Wi-Fi',t.wifiDrops!=null?t.wifiDrops+(t.wifiDrops?' (код '+t.lastDropReason+')':''):'—',t.wifiDrops>0],
+['Сжатие звука',s.adpcm?'ADPCM':'нет (PCM)'],['Свободно памяти',kb(t.heap)+' (мин. '+kb(t.heapMin)+')',t.heapMin<40000],
+['Крупнейший блок памяти',kb(t.heapBlock)],['Частота CPU',t.cpuMHz?t.cpuMHz+' МГц':'—'],
+['Зависание цикла, макс.',t.loopMaxGapMs!=null?t.loopMaxGapMs+' мс':'—',t.loopMaxGapMs>1000],
+['Потеряно при записи',t.micDropped!=null?t.micDropped+' отсчётов':'—',t.micDropped>0],
+['Запас буфера при записи (15 с)',kb(t.micBufFreeMin),t.micBufFreeMin<4096],
+['Провалы при проигрывании',t.playUnderruns??'—',t.playUnderruns>0],['Непрослушанных',s.unplayed],
+['Новая прошивка на испытании',t.otaTrial?'да':'нет']];
+$('tele').innerHTML=rows.map(([k,v,bad])=>'<div'+(bad?' class="bad"':'')+'><small>'+k+'</small><b>'+String(v).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;')+'</b></div>').join('');
+$('teleAge').textContent=s.teleAge!=null?'обновлено '+dur(s.teleAge)+' назад':''}
+async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;tele(s);
 $('dot').className='dot'+(s.connected?' on':'');$('conn').textContent=s.connected?'ESP32 подключена':'ожидаю ESP32…';
 $('peer').textContent=s.connected?s.peer:'';$('lvl').style.width=Math.min(100,s.level/40)+'%';
 $('btn').disabled=!s.connected;$('btn').textContent=rec?'Остановить':'Записать';$('btn').className=rec?'rec':'';

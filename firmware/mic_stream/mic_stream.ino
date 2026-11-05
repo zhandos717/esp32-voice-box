@@ -30,7 +30,7 @@ Preferences prefs;
 WiFiClient client;
 String ssid, pass, host, token;
 uint16_t port = 8800;
-bool streaming = false;
+volatile bool streaming = false;
 int32_t raw[256];
 StreamBufferHandle_t micBuf;                // 16-bit samples from the microphone task to the loop: 1 s of slack for a stalled network write
 
@@ -48,13 +48,23 @@ static inline int16_t micSample(int32_t x) {
   return (int16_t)y;
 }
 
+// telemetry counters, sent to the server every 15 s (frame type 10, JSON)
+volatile uint32_t micDropped = 0, playUnderruns = 0;
+volatile size_t micFreeMin = SIZE_MAX;
+uint32_t wifiDrops = 0, serverConnects = 0, loopMaxGap = 0, lastDropReason = 0;
+
 void micTask(void *) {
   static int16_t pcm16[256];
   for (;;) {
     size_t got = i2s.readBytes((char *)raw, sizeof(raw));
     int n = got / sizeof(int32_t);
     for (int i = 0; i < n; i++) pcm16[i] = micSample(raw[i]);
-    if (n > 0) xStreamBufferSend(micBuf, pcm16, n * sizeof(int16_t), 0);
+    bool lost = n > 0 && xStreamBufferSend(micBuf, pcm16, n * sizeof(int16_t), 0) < n * sizeof(int16_t);
+    if (streaming) {                                   // only a recording counts: while idle nobody needs the buffer drained
+      if (lost) micDropped += n;
+      size_t free = xStreamBufferSpacesAvailable(micBuf);
+      if (free < micFreeMin) micFreeMin = free;
+    }
   }
 }
 uint8_t frame[3 + 256 * sizeof(int16_t)];   // 1 byte type, 2 bytes length, then PCM (encoded in place to ADPCM before sending)
@@ -136,6 +146,8 @@ int edge(int pin, bool &last, uint32_t &changed) {
 }
 
 // type 2 = record button pressed, 4 = released (hold to record), 3 = play the next unheard recording
+void sendTelemetry();
+
 void sendEvent(uint8_t type) {
   if (!client.connected()) return;
   uint8_t f[3] = {type, 0, 0};
@@ -148,6 +160,26 @@ void alive() {
   esp_task_wdt_reset();
   static uint32_t last = 0;
   if (millis() - last > 5000) { last = millis(); sendEvent(9); }
+}
+
+void sendTelemetry() {
+  if (!client.connected()) return;
+  static const char *reasons[] = {"unknown", "power-on", "external", "software", "panic", "int-wdt", "task-wdt", "wdt", "deep-sleep", "brownout", "sdio"};
+  int r = esp_reset_reason();
+  char j[480];
+  int len = snprintf(j, sizeof(j),
+    "{\"uptime\":%lu,\"heap\":%u,\"heapMin\":%u,\"heapBlock\":%u,\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ip\":\"%s\","
+    "\"txPower\":%.2f,\"cpuMHz\":%lu,\"reset\":\"%s\",\"wifiDrops\":%lu,\"lastDropReason\":%lu,\"serverConnects\":%lu,"
+    "\"loopMaxGapMs\":%lu,\"micDropped\":%lu,\"micBufFreeMin\":%u,\"playUnderruns\":%lu,\"otaTrial\":%s}",
+    millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), WiFi.RSSI(), WiFi.channel(),
+    WiFi.BSSIDstr().c_str(), WiFi.localIP().toString().c_str(), WiFi.getTxPower() / 4.0, getCpuFrequencyMhz(),
+    r >= 0 && r < 11 ? reasons[r] : "other", wifiDrops, lastDropReason, serverConnects,
+    loopMaxGap, (uint32_t)micDropped, micFreeMin == SIZE_MAX ? 32768u : (unsigned)micFreeMin, (uint32_t)playUnderruns, otaTrial ? "true" : "false");
+  loopMaxGap = 0;
+  micFreeMin = SIZE_MAX;
+  uint8_t h[3] = {10, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
+  client.write(h, 3);
+  client.write((const uint8_t *)j, len);
 }
 
 // Plain text for the server log (frame type 5)
@@ -314,6 +346,7 @@ bool connectServer() {
   }
   client.write(hdr, hdrLen);
   Serial.println("connected to server");
+  serverConnects++;
   debugText("firmware " __DATE__ " " __TIME__);
   debugToServer("Wi-Fi TX power %lu.%02lu dBm", WiFi.getTxPower() / 4, WiFi.getTxPower() % 4 * 25);
   return true;
@@ -322,7 +355,7 @@ bool connectServer() {
 // Playback is buffered: the network fills a 2.5 s buffer, a separate task feeds the speaker from it,
 // so a Wi-Fi stall of a second or so does not turn into silence in the speaker.
 StreamBufferHandle_t playBuf;
-volatile bool playGate = false, playBusy = false;
+volatile bool playGate = false, playBusy = false, playFeeding = false;   // feeding: the message is still arriving
 uint32_t playEnded = 0;
 
 void playTask(void *) {
@@ -331,7 +364,7 @@ void playTask(void *) {
     if (!playGate && xStreamBufferBytesAvailable(playBuf) == 0) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
     if (!playGate) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }          // still collecting the first second
     size_t got = xStreamBufferReceive(playBuf, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
-    if (got == 0) continue;
+    if (got == 0) { if (playFeeding) playUnderruns++; continue; }   // the speaker ran dry while the network was late
     playBusy = true;
     int n = got / 2;
     for (int i = 0; i < n; i++) chunk[i] = (int16_t)(chunk[i] * PLAY_VOLUME);
@@ -371,6 +404,7 @@ void playFromServer(uint32_t total, bool adpcm) {
   amp(true);
   xStreamBufferReset(playBuf);
   playGate = false;
+  playFeeding = true;
   uint32_t left = total;
   bool ok = true;
   while (left > 0 && ok && client.connected()) {
@@ -391,6 +425,7 @@ void playFromServer(uint32_t total, bool adpcm) {
     }
     if (!playGate && xStreamBufferBytesAvailable(playBuf) >= START_BYTES) playGate = true;
   }
+  playFeeding = false;
   playGate = true;                                       // short message: play what we have
   if (left > 0) {                                        // aborted: the rest would be read as commands, start over
     Serial.println("playback aborted, reconnecting");
@@ -625,6 +660,8 @@ void setup() {
   // why a Wi-Fi attempt fails: 15 or 202 = wrong password, 201 = network not found
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
     Serial.printf("\nWi-Fi disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+    wifiDrops++;
+    lastDropReason = info.wifi_sta_disconnected.reason;
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   Serial.printf("mic_stream ready, network '%s'\n", ssid.c_str());
 }
@@ -640,12 +677,14 @@ void loop() {
   static uint32_t lastIter = 0;
   uint32_t gap = millis() - lastIter;
   lastIter = millis();
+  if (lastIter > 5000 && gap > loopMaxGap) loopMaxGap = gap;
   if (lastIter > 5000 && gap > 300) debugToServer("main loop was stuck for %lu ms (RSSI -%lu dBm)", gap, (uint32_t)(-WiFi.RSSI()));
   handleSerial();
   static uint32_t lastRssi = 0;                       // signal strength into the server log: helps to find a good place for the board
   if (client.connected() && millis() - lastRssi > 15000) {
     lastRssi = millis();
     debugToServer("Wi-Fi signal -%lu dBm (good: up to -65, poor: below -80)", (uint32_t)(-WiFi.RSSI()));
+    sendTelemetry();
   }
   if (WiFi.status() != WL_CONNECTED) {
     streaming = false;

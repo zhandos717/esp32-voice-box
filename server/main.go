@@ -36,7 +36,11 @@ type server struct {
 	connected               bool
 	peer                    string
 	rate                    uint32
-	adpcm                   bool // the connected board speaks IMA ADPCM (a quarter of the PCM traffic)
+	adpcm                   bool           // the connected board speaks IMA ADPCM (a quarter of the PCM traffic)
+	tele                    map[string]any // last telemetry frame of the board
+	teleAt, connectedAt     time.Time
+	lastGone                time.Time
+	connects                int // board connections since the server started
 	recording               bool
 	level                   int
 	chimePending            bool // a new Telegram message has not been announced by the board yet (it acknowledges with frame 6)
