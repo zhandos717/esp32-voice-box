@@ -447,7 +447,18 @@ func (t *telegram) handle(m *tgMessage) {
 		media = m.Document
 	}
 	if media == nil {
-		t.say(chat, thread, "Пришлите голосовое сообщение: оно будет ждать на колонке платы.")
+		text := strings.TrimSpace(m.Text)
+		if text == "" || strings.HasPrefix(text, "/") || !ttsConfigured() {
+			t.say(chat, thread, "Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.")
+			return
+		}
+		pcm, err := speak(text)
+		if err != nil {
+			t.say(chat, thread, "Не получилось озвучить: "+err.Error())
+			log.Println("telegram: text to speech failed -", err)
+			return
+		}
+		t.enqueue(chat, thread, m.MessageID, pcm, "text read aloud")
 		return
 	}
 	data, err := t.download(media.FileID)
@@ -460,14 +471,19 @@ func (t *telegram) handle(m *tgMessage) {
 		log.Println("telegram: voice failed -", err)
 		return
 	}
+	t.enqueue(chat, thread, m.MessageID, pcm, "voice")
+}
+
+// enqueue puts a message for the board into the unplayed queue and rings the board.
+func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind string) {
 	name := t.srv.newName("tg")
 	if err := writeWAV(filepath.Join(t.srv.recDir, name), pcm, 16000); err != nil {
 		log.Println("cannot save:", err)
 		return
 	}
-	t.rememberSource(name, tgSource{Chat: chat, Thread: thread, Msg: m.MessageID})
+	t.rememberSource(name, tgSource{Chat: chat, Thread: thread, Msg: msgID})
 	secs := float64(len(pcm)) / 32000
-	log.Printf("telegram: voice saved %s %.1f s", name, secs)
+	log.Printf("telegram: %s saved %s %.1f s", kind, name, secs)
 	t.srv.sendUnplayed()
 	t.srv.mu.Lock()
 	t.srv.chimePending = true
