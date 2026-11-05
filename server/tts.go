@@ -50,8 +50,11 @@ func speak(text string) ([]byte, error) {
 }
 
 var voiceEffects = map[string]string{
-	"chipmunk": "asetrate=16000*2.0,aresample=16000,atempo=0.72,equalizer=f=2500:t=q:w=1:g=4", // an octave up like tape, slowed to stay clear, a nasal lift
-	"robot":    "asetrate=16000*0.9,aresample=16000,aecho=0.8:0.85:12:0.4",
+	"chipmunk":        "asetrate=16000*2.0,aresample=16000,atempo=0.72,equalizer=f=2500:t=q:w=1:g=4", // an octave up like tape, slowed to stay clear, a nasal lift
+	"chipmunk-light":  "asetrate=16000*1.45,aresample=16000,atempo=0.85",
+	"chipmunk-high":   "asetrate=16000*1.8,aresample=16000,atempo=0.8",
+	"chipmunk-bright": "asetrate=16000*1.65,aresample=16000,atempo=0.95,equalizer=f=3000:t=q:w=1.2:g=5,highpass=f=250",
+	"robot":           "asetrate=16000*0.9,aresample=16000,aecho=0.8:0.85:12:0.4",
 }
 
 // voiceEffect runs 16 kHz PCM through an ffmpeg filter; an empty name leaves it as it is.
@@ -61,7 +64,7 @@ func voiceEffect(pcm []byte, name string) ([]byte, error) {
 	}
 	filter, ok := voiceEffects[name]
 	if !ok {
-		return nil, fmt.Errorf("неизвестный TTS_EFFECT %q (есть: chipmunk, robot)", name)
+		return nil, fmt.Errorf("неизвестный TTS_EFFECT %q (есть: chipmunk, chipmunk-light, chipmunk-high, chipmunk-bright, robot)", name)
 	}
 	ff := findFFmpeg()
 	if ff == "" {

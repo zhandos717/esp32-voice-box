@@ -98,7 +98,7 @@ func TestVoiceEffect(t *testing.T) {
 		t.Skip("no ffmpeg")
 	}
 	pcm := make([]byte, 32000) // one second
-	for _, name := range []string{"chipmunk", "robot"} {
+	for _, name := range []string{"chipmunk", "chipmunk-light", "chipmunk-high", "chipmunk-bright", "robot"} {
 		out, err := voiceEffect(pcm, name)
 		if err != nil || len(out) < 16000 || len(out) > 40000 {
 			t.Fatalf("%s: %d bytes, %v", name, len(out), err)
