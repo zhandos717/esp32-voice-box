@@ -227,6 +227,10 @@ func (s *server) handleConn(c net.Conn) {
 	}
 	c.SetReadDeadline(time.Time{})
 	rate := binary.LittleEndian.Uint32(hdr[4:8])
+	if rate < 8000 || rate > 48000 {
+		log.Println("rejected", c.RemoteAddr(), "(sample rate", rate, "Hz)")
+		return
+	}
 	adpcm := binary.LittleEndian.Uint16(hdr[8:10]) == 4 // the board sends and takes IMA ADPCM
 	s.mu.Lock()
 	if s.conn != nil {

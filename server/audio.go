@@ -13,6 +13,8 @@ const (
 	prerollSamples = 6400  // the board sends this much audio from before the press first (PREROLL in the firmware): the press click follows right after it
 	clickBeforeMs  = 45    // the contact is felt before the debounced press is reported
 	clickAfterMs   = 80    // ringing of the button and the box after the press
+	clickSearchMs  = 250   // the click is looked for this far before the reported press
+	clickMaxMs     = 200   // a click is never longer than this; anything longer is speech
 	duckFloor      = 0.03  // level left in the dip
 	targetLevel    = 0.62  // the loud parts of the speech go to this fraction of full scale
 	maxAutoGain    = 12.0
@@ -65,12 +67,52 @@ func softLimit(v float64) float64 {
 }
 
 // duckClick dips the level around the moment of the button press, where the click of the button is recorded.
+// duckClick finds the press click near the press moment and dips it. The big arcade button clicks on its way down,
+// before the press is reported, and the board's audio lags a little, so the click lands up to ~250 ms early.
 func duckClick(x []float64, rate int) {
-	duckAt(x, prerollSamples*rate/16000, rate)
+	at := prerollSamples * rate / 16000
+	frame := rate / 100
+	lo, hi := at-clickSearchMs*rate/1000, at+clickAfterMs*rate/1000
+	if frame <= 0 || lo < 2*frame || hi > len(x) {
+		duckAt(x, at, rate)
+		return
+	}
+	level := func(i int) float64 {
+		var e float64
+		for _, v := range x[i : i+frame] {
+			e += v * v
+		}
+		return math.Sqrt(e / float64(frame))
+	}
+	var before []float64 // the room (or speech) before the search window
+	for i := 0; i+frame <= lo; i += frame {
+		before = append(before, level(i))
+	}
+	sort.Float64s(before)
+	threshold := math.Max(before[len(before)/2]*5, 200)
+	start := -1
+	for i := lo; i+frame <= hi; i += frame {
+		if level(i) > threshold {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		duckAt(x, at, rate)
+		return
+	}
+	end := start
+	for end+frame <= len(x) && end-start < clickMaxMs*rate/1000 && level(end) > threshold {
+		end += frame
+	}
+	duckRange(x, start-10*rate/1000, end+40*rate/1000, rate)
 }
 
 func duckAt(x []float64, at, rate int) {
-	from, to := at-clickBeforeMs*rate/1000, at+clickAfterMs*rate/1000
+	duckRange(x, at-clickBeforeMs*rate/1000, at+clickAfterMs*rate/1000, rate)
+}
+
+func duckRange(x []float64, from, to, rate int) {
 	ramp := 15 * rate / 1000
 	if from < 0 || to+ramp > len(x) {
 		return
@@ -159,7 +201,7 @@ func normalize(pcm []byte) []byte {
 // plus keepSilenceMs. Nothing before from (the release) is cut.
 func trimSilence(x []float64, from, rate int) []float64 {
 	frame := rate / 50
-	if len(x) < 4*frame {
+	if frame <= 0 || len(x) < 4*frame {
 		return x
 	}
 	var levels []float64
