@@ -50,7 +50,7 @@ func speak(text string) ([]byte, error) {
 }
 
 var voiceEffects = map[string]string{
-	"chipmunk": "asetrate=16000*1.45,aresample=16000,atempo=0.85", // sped up like tape, then slowed a bit to stay clear
+	"chipmunk": "asetrate=16000*2.0,aresample=16000,atempo=0.72,equalizer=f=2500:t=q:w=1:g=4", // an octave up like tape, slowed to stay clear, a nasal lift
 	"robot":    "asetrate=16000*0.9,aresample=16000,aecho=0.8:0.85:12:0.4",
 }
 
