@@ -80,6 +80,9 @@ func voiceEffect(pcm []byte, name string) ([]byte, error) {
 // speakAzure: REST text-to-speech; the requested format is already 16 kHz 16-bit mono WAV.
 func speakAzure(text string) ([]byte, error) {
 	voice := env("AZURE_SPEECH_VOICE", "ru-RU-SvetlanaNeural")
+	if isKazakh(text) {
+		voice = env("AZURE_SPEECH_VOICE_KK", "kk-KZ-AigulNeural")
+	}
 	lang := voice
 	if parts := strings.SplitN(voice, "-", 3); len(parts) == 3 {
 		lang = parts[0] + "-" + parts[1]
@@ -156,4 +159,9 @@ func lastLine(s string) string {
 		return s[i+1:]
 	}
 	return s
+}
+
+// isKazakh: letters of the Kazakh Cyrillic alphabet that Russian lacks.
+func isKazakh(text string) bool {
+	return strings.ContainsAny(text, "әғқңөұүһіӘҒҚҢӨҰҮҺІ")
 }

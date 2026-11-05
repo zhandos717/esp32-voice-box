@@ -61,7 +61,12 @@ func TestSpeakAzure(t *testing.T) {
 	t.Setenv("AZURE_SPEECH_KEY", "k123")
 	t.Setenv("AZURE_SPEECH_REGION", "westeurope")
 	t.Setenv("AZURE_SPEECH_ENDPOINT", srv.URL)
-	t.Setenv("AZURE_SPEECH_VOICE", "kk-KZ-AigulNeural")
+	t.Setenv("AZURE_SPEECH_VOICE", "ru-RU-DmitryNeural")
+	t.Setenv("AZURE_SPEECH_VOICE_KK", "kk-KZ-DauletNeural")
+	speak("Привет, мама")
+	if !strings.Contains(gotBody, `name="ru-RU-DmitryNeural"`) {
+		t.Fatalf("russian text: %s", gotBody)
+	}
 	pcm, err := speak("Сәлем <мама> & папа")
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +83,7 @@ func TestSpeakAzure(t *testing.T) {
 	}
 	t.Setenv("TTS_PITCH", "")
 	speak("Сәлем <мама> & папа")
-	if !strings.Contains(gotBody, `xml:lang="kk-KZ"`) || !strings.Contains(gotBody, "&lt;мама&gt; &amp; папа") {
+	if !strings.Contains(gotBody, `name="kk-KZ-DauletNeural"`) || !strings.Contains(gotBody, `xml:lang="kk-KZ"`) || !strings.Contains(gotBody, "&lt;мама&gt; &amp; папа") {
 		t.Fatalf("ssml %s", gotBody)
 	}
 	t.Setenv("AZURE_SPEECH_KEY", "bad")
