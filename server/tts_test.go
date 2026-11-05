@@ -155,3 +155,28 @@ func TestSpeakEdge(t *testing.T) {
 		t.Fatalf("args %s", got)
 	}
 }
+
+func TestVoicePerSender(t *testing.T) {
+	s := &server{recDir: t.TempDir()}
+	s.sounds.VoiceRu, s.sounds.VoiceKk = "fairy", "aigul-chipmunk"
+	s.noteSender(42, "Мама")
+	s.noteSender(7, "Папа")
+	s.sounds.Senders["42"].VoiceRu = "bear"
+	if p := s.voiceFor(false, 42); p.ID != "bear" {
+		t.Fatalf("mom's own voice: %+v", p)
+	}
+	if p := s.voiceFor(true, 42); p.ID != "aigul-chipmunk" {
+		t.Fatalf("no own Kazakh voice: default expected, got %+v", p)
+	}
+	if p := s.voiceFor(false, 7); p.ID != "fairy" {
+		t.Fatalf("dad without a voice: default expected, got %+v", p)
+	}
+	s.noteSender(42, "Мама Айгерим")
+	if v := s.sounds.Senders["42"]; v.Name != "Мама Айгерим" || v.VoiceRu != "bear" {
+		t.Fatalf("rename lost the voice: %+v", v)
+	}
+	s.loadSettings()
+	if v := s.sounds.Senders["42"]; v == nil || v.VoiceRu != "bear" {
+		t.Fatalf("not saved: %+v", s.sounds.Senders)
+	}
+}

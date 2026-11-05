@@ -173,7 +173,13 @@ type tgMessage struct {
 	Chat struct {
 		ID int64 `json:"id"`
 	} `json:"chat"`
-	MessageID int64    `json:"message_id"`
+	MessageID int64 `json:"message_id"`
+	From      struct {
+		ID        int64  `json:"id"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+		Username  string `json:"username"`
+	} `json:"from"`
 	ThreadID  int64    `json:"message_thread_id"`
 	Text      string   `json:"text"`
 	Voice     *tgMedia `json:"voice"`
@@ -436,6 +442,7 @@ func (t *telegram) handle(m *tgMessage) {
 	if t.threadID != 0 && thread != t.threadID {
 		return // another topic of the group: not ours
 	}
+	t.srv.noteSender(m.From.ID, senderName(m))
 	media := m.Voice
 	if media == nil {
 		media = m.Audio
@@ -452,7 +459,7 @@ func (t *telegram) handle(m *tgMessage) {
 			t.say(chat, thread, "Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.")
 			return
 		}
-		voice := t.srv.voiceFor(isKazakh(text))
+		voice := t.srv.voiceFor(isKazakh(text), m.From.ID)
 		pcm, err := t.srv.speakAs(text, voice)
 		if err != nil {
 			t.say(chat, thread, "Не получилось озвучить: "+err.Error())
@@ -543,4 +550,12 @@ func (t *telegram) run() {
 			os.WriteFile(offsetFile, []byte(strconv.FormatInt(offset, 10)), 0o644)
 		}
 	}
+}
+
+func senderName(m *tgMessage) string {
+	name := strings.TrimSpace(m.From.FirstName + " " + m.From.LastName)
+	if name == "" && m.From.Username != "" {
+		name = "@" + m.From.Username
+	}
+	return name
 }

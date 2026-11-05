@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // The sounds live in the firmware (mic_stream.ino, playSound); here are their names and the chosen ones.
@@ -23,10 +24,39 @@ var bootSounds = []soundInfo{
 }
 
 type soundSettings struct {
-	Notify  int    `json:"notify"`
-	Boot    int    `json:"boot"`
-	VoiceRu string `json:"voiceRu,omitempty"` // voice preset for text messages; empty = the .env settings
+	Notify  int                     `json:"notify"`
+	Boot    int                     `json:"boot"`
+	VoiceRu string                  `json:"voiceRu,omitempty"` // voice preset for text messages; empty = the .env settings
+	VoiceKk string                  `json:"voiceKk,omitempty"`
+	Senders map[string]*senderVoice `json:"senders,omitempty"` // Telegram user id -> their own voice
+}
+
+// senderVoice: who wrote to the box (name as Telegram shows it) and the voice their text is read with ("" = default).
+type senderVoice struct {
+	Name    string `json:"name"`
+	VoiceRu string `json:"voiceRu,omitempty"`
 	VoiceKk string `json:"voiceKk,omitempty"`
+}
+
+// noteSender remembers a person who wrote to the box, so the web page can give them a voice.
+func (s *server) noteSender(id int64, name string) {
+	if id == 0 {
+		return
+	}
+	key := strconv.FormatInt(id, 10)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sounds.Senders == nil {
+		s.sounds.Senders = map[string]*senderVoice{}
+	}
+	if v := s.sounds.Senders[key]; v != nil && v.Name == name {
+		return
+	} else if v != nil {
+		v.Name = name
+	} else {
+		s.sounds.Senders[key] = &senderVoice{Name: name}
+	}
+	s.saveSettings()
 }
 
 func (s *server) settingsFile() string { return filepath.Join(s.recDir, "settings.json") }
