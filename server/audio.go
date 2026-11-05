@@ -159,7 +159,7 @@ func normalize(pcm []byte) []byte {
 // plus keepSilenceMs. Nothing before from (the release) is cut.
 func trimSilence(x []float64, from, rate int) []float64 {
 	frame := rate / 50
-	if len(x) < 4*frame {
+	if frame <= 0 || len(x) < 4*frame {
 		return x
 	}
 	var levels []float64

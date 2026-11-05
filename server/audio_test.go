@@ -78,3 +78,10 @@ func TestTrimSilenceAfterRelease(t *testing.T) {
 		t.Fatalf("quiet tail: kept %d", got)
 	}
 }
+
+func TestTrimSilenceTinyRate(t *testing.T) {
+	x := make([]float64, 100)
+	if len(trimSilence(x, 10, 40)) != 100 { // frame would be 0: must return, not loop
+		t.Fatal("changed")
+	}
+}
