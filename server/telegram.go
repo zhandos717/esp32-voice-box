@@ -452,13 +452,18 @@ func (t *telegram) handle(m *tgMessage) {
 			t.say(chat, thread, "Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.")
 			return
 		}
-		pcm, err := t.srv.speak(text)
+		voice := t.srv.voiceFor(isKazakh(text))
+		pcm, err := t.srv.speakAs(text, voice)
 		if err != nil {
 			t.say(chat, thread, "Не получилось озвучить: "+err.Error())
 			log.Println("telegram: text to speech failed -", err)
 			return
 		}
-		t.enqueue(chat, thread, m.MessageID, pcm, "text read aloud")
+		label := voice.Name
+		if label == "" {
+			label = voice.Voice
+		}
+		t.enqueue(chat, thread, m.MessageID, pcm, "text read aloud", label)
 		return
 	}
 	data, err := t.download(media.FileID)
@@ -471,13 +476,15 @@ func (t *telegram) handle(m *tgMessage) {
 		log.Println("telegram: voice failed -", err)
 		return
 	}
-	t.enqueue(chat, thread, m.MessageID, pcm, "voice")
+	t.enqueue(chat, thread, m.MessageID, pcm, "voice", "")
 }
 
 // enqueue puts a message for the board into the unplayed queue and rings the board.
-func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind string) {
+// A synthesised one (voiceName set) is also sent back as a voice reply, so the sender hears what the box will say.
+func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind, voiceName string) {
 	name := t.srv.newName("tg")
-	if err := writeWAV(filepath.Join(t.srv.recDir, name), pcm, 16000); err != nil {
+	full := filepath.Join(t.srv.recDir, name)
+	if err := writeWAV(full, pcm, 16000); err != nil {
 		log.Println("cannot save:", err)
 		return
 	}
@@ -489,7 +496,23 @@ func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind string) {
 	t.srv.chimePending = true
 	t.srv.mu.Unlock()
 	t.srv.send(t.srv.newMessageMsg(100)) // sound on the board: a new message has arrived (resent after a reconnect until the board acknowledges)
-	t.say(chat, thread, fmt.Sprintf("Принято (%.0f с): ждёт на колонке платы.", secs))
+	text := fmt.Sprintf("Принято (%.0f с): ждёт на колонке платы.", secs)
+	if voiceName != "" {
+		if ogg := wavToOgg(full); ogg != nil {
+			p := map[string]any{"chat_id": chat, "caption": text + "\nГолос: " + voiceName,
+				"reply_parameters": fmt.Sprintf(`{"message_id":%d,"allow_sending_without_reply":true}`, msgID)} // form field: JSON as text
+			if thread != 0 {
+				p["message_thread_id"] = thread
+			}
+			if _, err := t.api("sendVoice", p, map[string]fileField{"voice": {"voice.ogg", "audio/ogg", ogg}}, 60*time.Second); err == nil {
+				return
+			} else {
+				log.Println("telegram: voice reply failed -", err)
+			}
+		}
+		text += "\nГолос: " + voiceName
+	}
+	t.say(chat, thread, text)
 }
 
 func (t *telegram) run() {
