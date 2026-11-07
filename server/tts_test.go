@@ -180,3 +180,20 @@ func TestVoicePerSender(t *testing.T) {
 		t.Fatalf("not saved: %+v", s.sounds.Senders)
 	}
 }
+
+func TestReplyKazakh(t *testing.T) {
+	m := &tgMessage{Text: "Сәлем, қалайсың?"}
+	if !replyKazakh(m) {
+		t.Error("Kazakh text must get a Kazakh reply")
+	}
+	m = &tgMessage{Text: "Привет"}
+	m.From.Language = "kk"
+	if replyKazakh(m) {
+		t.Error("Russian text gets a Russian reply whatever the Telegram language")
+	}
+	m = &tgMessage{}
+	m.From.Language = "kk"
+	if !replyKazakh(m) {
+		t.Error("a voice message follows the sender's Telegram language")
+	}
+}
