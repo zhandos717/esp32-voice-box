@@ -117,6 +117,7 @@ type tgSource struct {
 	Chat   int64 `json:"chat"`
 	Thread int64 `json:"thread"`
 	Msg    int64 `json:"msg"`
+	Kk     bool  `json:"kk,omitempty"`
 }
 
 func (t *telegram) sourcesFile() string { return filepath.Join(t.srv.recDir, "tg_sources.json") }
@@ -152,7 +153,7 @@ func (t *telegram) heard(name string) {
 	}, nil, 30*time.Second)
 	if err != nil {
 		log.Println("telegram: reaction failed, replying instead -", err)
-		p := map[string]any{"chat_id": src.Chat, "text": "✅ Прослушано", "reply_to_message_id": src.Msg}
+		p := map[string]any{"chat_id": src.Chat, "text": tr(src.Kk, "heard"), "reply_to_message_id": src.Msg}
 		if src.Thread != 0 {
 			p["message_thread_id"] = src.Thread
 		}
@@ -179,6 +180,7 @@ type tgMessage struct {
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
 		Username  string `json:"username"`
+		Language  string `json:"language_code"`
 	} `json:"from"`
 	ThreadID  int64    `json:"message_thread_id"`
 	Text      string   `json:"text"`
@@ -443,6 +445,7 @@ func (t *telegram) handle(m *tgMessage) {
 		return // another topic of the group: not ours
 	}
 	t.srv.noteSender(m.From.ID, senderName(m))
+	kk := replyKazakh(m)
 	media := m.Voice
 	if media == nil {
 		media = m.Audio
@@ -456,13 +459,13 @@ func (t *telegram) handle(m *tgMessage) {
 	if media == nil {
 		text := strings.TrimSpace(m.Text)
 		if text == "" || strings.HasPrefix(text, "/") || !ttsConfigured() {
-			t.say(chat, thread, "Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.")
+			t.say(chat, thread, tr(kk, "hint"))
 			return
 		}
 		voice := t.srv.voiceFor(isKazakh(text), m.From.ID)
 		pcm, err := t.srv.speakAs(text, voice)
 		if err != nil {
-			t.say(chat, thread, "Не получилось озвучить: "+err.Error())
+			t.say(chat, thread, tr(kk, "ttsFail")+err.Error())
 			log.Println("telegram: text to speech failed -", err)
 			return
 		}
@@ -470,7 +473,7 @@ func (t *telegram) handle(m *tgMessage) {
 		if label == "" {
 			label = voice.Voice
 		}
-		t.enqueue(chat, thread, m.MessageID, pcm, "text read aloud", label)
+		t.enqueue(chat, thread, m.MessageID, kk, pcm, "text read aloud", label)
 		return
 	}
 	data, err := t.download(media.FileID)
@@ -479,23 +482,23 @@ func (t *telegram) handle(m *tgMessage) {
 		pcm, err = decodeToPCM(data)
 	}
 	if err != nil {
-		t.say(chat, thread, "Не получилось принять: "+err.Error())
+		t.say(chat, thread, tr(kk, "recvFail")+err.Error())
 		log.Println("telegram: voice failed -", err)
 		return
 	}
-	t.enqueue(chat, thread, m.MessageID, pcm, "voice", "")
+	t.enqueue(chat, thread, m.MessageID, kk, pcm, "voice", "")
 }
 
 // enqueue puts a message for the board into the unplayed queue and rings the board.
 // A synthesised one (voiceName set) is also sent back as a voice reply, so the sender hears what the box will say.
-func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind, voiceName string) {
+func (t *telegram) enqueue(chat, thread, msgID int64, kk bool, pcm []byte, kind, voiceName string) {
 	name := t.srv.newName("tg")
 	full := filepath.Join(t.srv.recDir, name)
 	if err := writeWAV(full, pcm, 16000); err != nil {
 		log.Println("cannot save:", err)
 		return
 	}
-	t.rememberSource(name, tgSource{Chat: chat, Thread: thread, Msg: msgID})
+	t.rememberSource(name, tgSource{Chat: chat, Thread: thread, Msg: msgID, Kk: kk})
 	secs := float64(len(pcm)) / 32000
 	log.Printf("telegram: %s saved %s %.1f s", kind, name, secs)
 	t.srv.sendUnplayed()
@@ -503,10 +506,10 @@ func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind, voiceNam
 	t.srv.chimePending = true
 	t.srv.mu.Unlock()
 	t.srv.send(t.srv.newMessageMsg(100)) // sound on the board: a new message has arrived (resent after a reconnect until the board acknowledges)
-	text := fmt.Sprintf("Принято (%.0f с): ждёт на колонке платы.", secs)
+	text := fmt.Sprintf(tr(kk, "accepted"), secs)
 	if voiceName != "" {
 		if ogg := wavToOgg(full); ogg != nil {
-			p := map[string]any{"chat_id": chat, "caption": text + "\nГолос: " + voiceName,
+			p := map[string]any{"chat_id": chat, "caption": text + tr(kk, "voice") + voiceName,
 				"reply_parameters": fmt.Sprintf(`{"message_id":%d,"allow_sending_without_reply":true}`, msgID)} // form field: JSON as text
 			if thread != 0 {
 				p["message_thread_id"] = thread
@@ -517,7 +520,7 @@ func (t *telegram) enqueue(chat, thread, msgID int64, pcm []byte, kind, voiceNam
 				log.Println("telegram: voice reply failed -", err)
 			}
 		}
-		text += "\nГолос: " + voiceName
+		text += tr(kk, "voice") + voiceName
 	}
 	t.say(chat, thread, text)
 }
@@ -558,4 +561,28 @@ func senderName(m *tgMessage) string {
 		name = "@" + m.From.Username
 	}
 	return name
+}
+
+var botText = map[string][2]string{ // Russian, Kazakh
+	"accepted": {"Принято (%.0f с): ждёт на колонке платы.", "Қабылданды (%.0f с): плата динамигінде күтіп тұр."},
+	"voice":    {"\nГолос: ", "\nДауыс: "},
+	"heard":    {"✅ Прослушано", "✅ Тыңдалды"},
+	"hint":     {"Пришлите голосовое или текстовое сообщение: оно будет ждать на колонке платы.", "Дауыстық не мәтіндік хабар жіберіңіз: ол плата динамигінде күтіп тұрады."},
+	"ttsFail":  {"Не получилось озвучить: ", "Дыбыстау мүмкін болмады: "},
+	"recvFail": {"Не получилось принять: ", "Қабылдау мүмкін болмады: "},
+}
+
+func tr(kk bool, key string) string {
+	if kk {
+		return botText[key][1]
+	}
+	return botText[key][0]
+}
+
+// replyKazakh: a text answers in its own language, a voice message in the language of the sender's Telegram
+func replyKazakh(m *tgMessage) bool {
+	if t := strings.TrimSpace(m.Text); t != "" && !strings.HasPrefix(t, "/") {
+		return isKazakh(t)
+	}
+	return m.From.Language == "kk"
 }
