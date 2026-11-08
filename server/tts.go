@@ -36,6 +36,8 @@ func ttsConfigured() bool   { return azureConfigured() || edgeConfigured() || pi
 type voicePreset struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
+	NameKk string `json:"nameKk,omitempty"`
+	NameEn string `json:"nameEn,omitempty"`
 	Kazakh bool   `json:"kk"`
 	Voice  string `json:"voice"`
 	Pitch  string `json:"pitch,omitempty"`
@@ -45,23 +47,33 @@ type voicePreset struct {
 
 // The same voices as the sample page; picked in the web page, stored in settings.json.
 var voicePresets = []voicePreset{
-	{ID: "svetlana", Name: "Светлана", Voice: "ru-RU-SvetlanaNeural"},
-	{ID: "dmitry", Name: "Дмитрий", Voice: "ru-RU-DmitryNeural"},
-	{ID: "ava", Name: "Ava (многоязычный)", Voice: "en-US-AvaMultilingualNeural"},
-	{ID: "andrew", Name: "Andrew (многоязычный)", Voice: "en-US-AndrewMultilingualNeural"},
-	{ID: "fairy", Name: "Фея", Voice: "ru-RU-SvetlanaNeural", Pitch: "+45Hz", Rate: "+15%"},
-	{ID: "gnome", Name: "Гномик", Voice: "ru-RU-DmitryNeural", Pitch: "+40Hz", Rate: "+25%"},
-	{ID: "bear", Name: "Медведь", Voice: "ru-RU-DmitryNeural", Pitch: "-25Hz", Rate: "-15%"},
-	{ID: "robot", Name: "Робот", Voice: "ru-RU-DmitryNeural", Effect: "robot"},
-	{ID: "chipmunk-light", Name: "Бурундук лёгкий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-light"},
-	{ID: "chipmunk-high", Name: "Бурундук высокий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-high"},
-	{ID: "chipmunk", Name: "Бурундук: октава, носовой", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk"},
-	{ID: "chipmunk-bright", Name: "Бурундук звонкий", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-bright"},
-	{ID: "chipmunk-boy", Name: "Мальчик-бурундук", Voice: "ru-RU-DmitryNeural", Effect: "chipmunk"},
-	{ID: "aigul", Name: "Айгуль", Kazakh: true, Voice: "kk-KZ-AigulNeural"},
-	{ID: "daulet", Name: "Даулет", Kazakh: true, Voice: "kk-KZ-DauletNeural"},
-	{ID: "aigul-chipmunk", Name: "Айгуль-бурундук", Kazakh: true, Voice: "kk-KZ-AigulNeural", Effect: "chipmunk"},
-	{ID: "daulet-chipmunk", Name: "Даулет-бурундук", Kazakh: true, Voice: "kk-KZ-DauletNeural", Effect: "chipmunk"},
+	{ID: "svetlana", Name: "Женский", NameKk: "Әйел дауысы", NameEn: "Female", Voice: "ru-RU-SvetlanaNeural"},
+	{ID: "dmitry", Name: "Мужской", NameKk: "Ер дауысы", NameEn: "Male", Voice: "ru-RU-DmitryNeural"},
+	{ID: "ava", Name: "Женский многоязычный", NameKk: "Көптілді әйел дауысы", NameEn: "Female multilingual", Voice: "en-US-AvaMultilingualNeural"},
+	{ID: "andrew", Name: "Мужской многоязычный", NameKk: "Көптілді ер дауысы", NameEn: "Male multilingual", Voice: "en-US-AndrewMultilingualNeural"},
+	{ID: "fairy", Name: "Фея", NameKk: "Пері", NameEn: "Fairy", Voice: "ru-RU-SvetlanaNeural", Pitch: "+45Hz", Rate: "+15%"},
+	{ID: "gnome", Name: "Гномик", NameKk: "Гномик", NameEn: "Gnome", Voice: "ru-RU-DmitryNeural", Pitch: "+40Hz", Rate: "+25%"},
+	{ID: "bear", Name: "Медведь", NameKk: "Аю", NameEn: "Bear", Voice: "ru-RU-DmitryNeural", Pitch: "-25Hz", Rate: "-15%"},
+	{ID: "robot", Name: "Робот", NameKk: "Робот", NameEn: "Robot", Voice: "ru-RU-DmitryNeural", Effect: "robot"},
+	{ID: "chipmunk-light", Name: "Бурундук лёгкий", NameKk: "Жеңіл бурундук", NameEn: "Light chipmunk", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-light"},
+	{ID: "chipmunk-high", Name: "Бурундук высокий", NameKk: "Жіңішке бурундук", NameEn: "High chipmunk", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-high"},
+	{ID: "chipmunk", Name: "Бурундук носовой", NameKk: "Мұрынмен сөйлейтін бурундук", NameEn: "Nasal chipmunk", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk"},
+	{ID: "chipmunk-bright", Name: "Бурундук звонкий", NameKk: "Сыңғыр бурундук", NameEn: "Bright chipmunk", Voice: "ru-RU-SvetlanaNeural", Effect: "chipmunk-bright"},
+	{ID: "chipmunk-boy", Name: "Мальчик-бурундук", NameKk: "Бурундук бала", NameEn: "Chipmunk boy", Voice: "ru-RU-DmitryNeural", Effect: "chipmunk"},
+	{ID: "aigul", Name: "Женский", NameKk: "Әйел дауысы", NameEn: "Female", Kazakh: true, Voice: "kk-KZ-AigulNeural"},
+	{ID: "daulet", Name: "Мужской", NameKk: "Ер дауысы", NameEn: "Male", Kazakh: true, Voice: "kk-KZ-DauletNeural"},
+	{ID: "aigul-chipmunk", Name: "Бурундук, женский", NameKk: "Бурундук, әйел", NameEn: "Chipmunk, female", Kazakh: true, Voice: "kk-KZ-AigulNeural", Effect: "chipmunk"},
+	{ID: "daulet-chipmunk", Name: "Бурундук, мужской", NameKk: "Бурундук, ер", NameEn: "Chipmunk, male", Kazakh: true, Voice: "kk-KZ-DauletNeural", Effect: "chipmunk"},
+}
+
+func (p voicePreset) label(kk bool) string {
+	if kk && p.NameKk != "" {
+		return p.NameKk
+	}
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.Voice
 }
 
 func findPreset(id string, kk bool) (voicePreset, bool) {

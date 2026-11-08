@@ -9,18 +9,32 @@ import (
 
 // The sounds live in the firmware (mic_stream.ino, playSound); here are their names and the chosen ones.
 type soundInfo struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	NameKk string `json:"nameKk"`
+	NameEn string `json:"nameEn"`
 }
 
 var notifySounds = []soundInfo{
-	{1, "Капля"}, {2, "«Ой-ой» (как в аське)"}, {3, "Колокольчик"}, {4, "Три ноты вверх"}, {5, "Дин-дон"},
-	{6, "Мягкий пинг"}, {7, "Сонар"}, {8, "Рация «бип-бип»"}, {9, "Мягкие ноты"}, {10, "Аркада"},
+	{1, "Капля", "Тамшы", "Drop"},
+	{2, "«Ой-ой»", "«Ой-ой»", "Uh-oh"},
+	{3, "Колокольчик", "Қоңырау", "Bell"},
+	{4, "Три ноты вверх", "Үш нота жоғары", "Three notes up"},
+	{5, "Дин-дон", "Дің-доң", "Ding-dong"},
+	{6, "Мягкий пинг", "Жұмсақ пинг", "Soft ping"},
+	{7, "Сонар", "Сонар", "Sonar"},
+	{8, "Рация «бип-бип»", "Рация «бип-бип»", "Walkie-talkie beep"},
+	{9, "Мягкие ноты", "Жұмсақ ноталар", "Soft notes"},
+	{10, "Аркада", "Аркада", "Arcade"},
 }
 
 // start-up sounds: 0 = silence; the firmware plays 100 + id
 var bootSounds = []soundInfo{
-	{0, "Без звука"}, {1, "PlayStation"}, {2, "Мягкое включение"}, {3, "Короткий пик"}, {4, "Две ноты вверх"},
+	{0, "Без звука", "Дыбыссыз", "Silent"},
+	{1, "Игровая приставка", "Ойын приставкасы", "Game console"},
+	{2, "Мягкое включение", "Жұмсақ қосылу", "Soft start"},
+	{3, "Короткий сигнал", "Қысқа сигнал", "Short beep"},
+	{4, "Две ноты вверх", "Екі нота жоғары", "Two notes up"},
 }
 
 type soundSettings struct {
