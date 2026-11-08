@@ -122,7 +122,7 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 		log.Println("web: MIC_WEB_URL is set but Telegram is not configured, the page is closed")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
+		if r.URL.Path == "/" || r.URL.Path == "/vue.js" { // the page and its library carry no data
 			next.ServeHTTP(w, r)
 			return
 		}

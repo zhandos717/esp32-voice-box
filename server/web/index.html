@@ -25,54 +25,77 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 .tabs button{display:grid;justify-items:center;gap:2px;padding:8px 2px 6px;border:0;border-radius:0;background:none;color:var(--mut);font-size:11px;font-weight:600}.tabs button svg{width:24px;height:24px}.tabs button.on{color:var(--acc)}
 [data-page][hidden]{display:none}
 .snds{display:grid;gap:6px;margin-top:8px}.snd{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}.snd.cur{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent)}.snd span{flex:1}.snd button{padding:6px 12px}
+[v-cloak]{display:none}
 </style>
+<div id="app" v-cloak>
 <main>
-<div class="row"><h1 data-t="title">Микрофон ESP32</h1><div class="lang" role="group" aria-label="Language"><button data-lang="ru">RU</button><button data-lang="kk">KZ</button><button data-lang="en">EN</button></div></div>
-<section class="card" data-page="home">
-<div class="row"><span><i class="dot" id="dot"></i><span id="conn">ожидаю ESP32…</span></span><span class="mut" id="peer"></span></div>
-<div class="bar"><i id="lvl"></i></div>
-<div class="row"><button id="btn" disabled>Записать</button><span id="time" class="mut"></span></div>
+<div class="row"><h1>{{ t('title') }}</h1><div class="lang" role="group" aria-label="Language"><button v-for="l in ['ru','kk','en']" :class="{on:lang===l}" @click="setLang(l)">{{ l==='kk'?'KZ':l.toUpperCase() }}</button></div></div>
+
+<template v-if="page==='home'">
+<section class="card">
+<div class="row"><span><i class="dot" :class="{on:st.connected}"></i>{{ st.connected?t('online'):t('waiting') }}</span><span class="mut">{{ st.connected?st.peer:'' }}</span></div>
+<div class="bar"><i :style="{width:Math.min(100,(st.level||0)/40)+'%'}"></i></div>
+<div class="row"><button :class="{rec:st.recording}" :disabled="!st.connected" @click="toggleRec">{{ st.recording?t('stop'):t('record') }}</button><span class="mut" v-if="st.recording">{{ t('recording',(st.seconds||0).toFixed(0)) }}</span></div>
 </section>
-<section class="card" data-page="board">
-<div class="row"><strong data-t="tele">Телеметрия платы</strong><span class="mut" id="teleAge"></span></div>
-<div class="tele" id="tele"><span class="mut" data-t="teleWait">ждём первый отчёт платы (раз в 15 с)</span></div>
+<section class="card"><strong>{{ t('recs') }}</strong>
+<div class="mut" v-if="!files.length">{{ t('none') }}</div>
+<div class="file" v-for="f in files" :key="f.name"><span>{{ f.name }} <b class="new" v-if="!f.played">{{ t('newRec') }}</b></span>
+<audio controls preload="none" :src="'/rec/'+f.name" @play="markPlayed(f)"></audio></div>
 </section>
-<section class="card" data-page="sounds">
-<strong data-t="sounds">Звуки</strong>
-<div class="mut" data-t="soundsNote">«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.</div>
-<div><b data-t="notify">Сигнал о новом сообщении</b><div id="sndNotify" class="snds"></div></div>
-<div><b data-t="boot">Звук при включении</b><div id="sndBoot" class="snds"></div></div>
+</template>
+
+<section class="card" v-if="page==='voice'">
+<strong>{{ t('voice') }}</strong>
+<div class="mut">{{ voices.ready===false?t('vNoTts'):t('vNote') }}</div>
+<label class="vrow" v-for="l in ['ru','kk']" :key="l"><span>{{ t(l) }}</span>
+<select v-model="voices.current[l]" @change="selectVoice(l,voices.current[l])"><option value="">{{ t('fromEnv') }}</option><option v-for="p in presetsFor(l)" :value="p.id">{{ p.name }}</option></select>
+<button class="led" @click.prevent="testVoice(l)">{{ t('listen') }}</button></label>
+<span class="mut">{{ vMsg }}</span>
+<div><b>{{ t('people') }}</b><div class="mut">{{ t('peopleNote') }}</div>
+<div class="snds"><span class="mut" v-if="!voices.senders.length">{{ t('nobody') }}</span>
+<div class="person" v-for="p in voices.senders" :key="p.id"><b>{{ p.name||('id '+p.id) }}</b>
+<select v-for="l in ['ru','kk']" :key="l" v-model="p[l]" :aria-label="t(l)+': '+p.name" @change="selectVoice(l,p[l],p)"><option value="">{{ t(l+'Def') }}</option><option v-for="v in presetsFor(l)" :value="v.id">{{ v.name }}</option></select>
+</div></div></div>
 </section>
-<section class="card" data-page="voice">
-<strong data-t="voice">Голос для текстовых сообщений</strong>
-<div class="mut" id="vNote"></div>
-<label class="vrow"><span data-t="ru">Русский</span><select id="vRu"></select><button class="led" id="tRu" data-t="listen">Прослушать на коробке</button></label>
-<label class="vrow"><span data-t="kk">Казахский</span><select id="vKk"></select><button class="led" id="tKk" data-t="listen">Прослушать на коробке</button></label>
-<span class="mut" id="vMsg"></span>
-<div><b data-t="people">Свой голос для каждого</b><div class="mut" data-t="peopleNote">Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.</div><div id="vPeople" class="snds"></div></div>
+
+<section class="card" v-if="page==='sounds'">
+<strong>{{ t('sounds') }}</strong>
+<div class="mut">{{ t('soundsNote') }}</div>
+<div v-for="kind in ['notify','boot']" :key="kind"><b>{{ t(kind) }}</b><div class="snds">
+<div class="snd" v-for="x in sounds[kind]" :key="x.id" :class="{cur:sounds.current[kind]===x.id}"><span>{{ x.name }}{{ sounds.current[kind]===x.id?t('chosen'):'' }}</span>
+<button class="led" v-if="x.id" @click="sound('play',kind,x.id)">▶</button><button @click="sound('select',kind,x.id)">{{ t('choose') }}</button></div>
+</div></div>
 </section>
-<section class="card" data-page="board">
-<strong data-t="fwTitle">Прошивка платы</strong>
-<div class="row"><span class="mut"><span data-t="onBoard">на плате:</span> <b id="fw">неизвестна</b></span></div>
-<div class="row"><button id="ota" data-t="otaBtn">Обновить по Wi-Fi</button><span id="otaMsg" class="mut"></span></div>
-<span class="mut" data-t="otaNote">Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.</span>
+
+<template v-if="page==='board'">
+<section class="card">
+<div class="row"><strong>{{ t('tele') }}</strong><span class="mut">{{ st.teleAge!=null?t('ago',dur(st.teleAge)):'' }}</span></div>
+<div class="tele" v-if="st.tele"><div v-for="r in teleRows" :key="r[0]" :class="{bad:r[2]}"><small>{{ r[0] }}</small><b>{{ r[1] }}</b></div></div>
+<span class="mut" v-else>{{ t('teleWait') }}</span>
 </section>
-<section class="card" data-page="board">
-<strong data-t="check">Проверка кнопок и светодиодов</strong>
-<label class="row"><input type="checkbox" id="test"> <span data-t="testMode">режим проверки (кнопки только зажигают лампы, не пишут и не играют)</span></label>
+<section class="card">
+<strong>{{ t('fwTitle') }}</strong>
+<div class="row"><span class="mut">{{ t('onBoard') }} <b>{{ st.fw||t('unknown') }}</b></span></div>
+<div class="row"><button :disabled="!st.connected||st.otaBusy" @click="ota">{{ t('otaBtn') }}</button><span class="mut">{{ st.otaBusy?t('otaBusy'):otaMsg }}</span></div>
+<span class="mut">{{ t('otaNote') }}</span>
+</section>
+<section class="card">
+<strong>{{ t('check') }}</strong>
+<label class="row"><input type="checkbox" :checked="st.test" @change="setTest($event.target.checked)"> <span>{{ t('testMode') }}</span></label>
 <div class="row">
-<div class="lamp"><i id="lRec"></i><span><span data-t="btnRec">Кнопка записи</span><br><small class="mut">GPIO 27, <span data-t="presses">нажатий:</span> <b id="nRec">0</b></small></span></div>
-<div class="lamp"><i id="lNext"></i><span><span data-t="btnNext">Кнопка «дальше»</span><br><small class="mut">GPIO 13, <span data-t="presses">нажатий:</span> <b id="nNext">0</b></small></span></div>
+<div class="lamp"><i :class="{on:st.btnRec}"></i><span>{{ t('btnRec') }}<br><small class="mut">GPIO 27, {{ t('presses') }} <b>{{ st.recPresses||0 }}</b></small></span></div>
+<div class="lamp"><i :class="{on:st.btnNext}"></i><span>{{ t('btnNext') }}<br><small class="mut">GPIO 13, {{ t('presses') }} <b>{{ st.nextPresses||0 }}</b></small></span></div>
 </div>
-<div class="row">
-<button class="led" data-id="0" data-t="led0">Светодиод «новое» (GPIO 18)</button>
-<button class="led" data-id="1" data-t="led1">Подсветка записи (GPIO 4)</button>
-<button class="led" data-id="2" data-t="led2">Светодиод платы (GPIO 2)</button>
-</div>
+<div class="row"><button class="led" v-for="i in [0,1,2]" :key="i" :class="{on:leds[i]}" @click="led(i)">{{ t('led'+i) }}</button></div>
 </section>
-<section class="card" data-page="home"><strong data-t="recs">Записи</strong><div id="list" class="mut"></div></section>
+</template>
 </main>
-<nav class="tabs"><button data-tab="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span data-t="tabHome">Запись</span></button><button data-tab="voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span data-t="tabVoice">Голос</span></button><button data-tab="sounds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg><span data-t="tabSounds">Звуки</span></button><button data-tab="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg><span data-t="tabBoard">Плата</span></button></nav>
+
+<nav class="tabs">
+<button v-for="tb in tabs" :key="tb.id" :class="{on:page===tb.id}" :aria-current="page===tb.id?'page':null" @click="show(tb.id)">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="tb.icon"></svg><span>{{ t(tb.label) }}</span></button>
+</nav>
+</div>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
 (async()=>{const tg=window.Telegram&&Telegram.WebApp;if(!tg||!tg.initData)return;tg.ready();tg.expand();
@@ -81,8 +104,8 @@ document.addEventListener('click',e=>{if(e.target.closest('button')&&tg.isVersio
 
 if((await fetch("/api/status")).status===401&&(await fetch("/auth",{method:"POST",body:tg.initData})).ok)location.reload()})();
 </script>
+<script src="/vue.js"></script>
 <script>
-const $=id=>document.getElementById(id);let rec=false;
 const T={
 ru:{tabHome:'Запись',tabVoice:'Голос',tabSounds:'Звуки',tabBoard:'Плата',title:'Микрофон ESP32',tele:'Телеметрия платы',teleWait:'ждём первый отчёт платы (раз в 15 с)',sounds:'Звуки',soundsNote:'«▶» играет на плате, «Выбрать» запоминает. Пока есть непрослушанные, сигнал повторяется тише каждые 5 секунд.',notify:'Сигнал о новом сообщении',boot:'Звук при включении',voice:'Голос для текстовых сообщений',ru:'Русский',kk:'Казахский',listen:'Прослушать на коробке',people:'Свой голос для каждого',peopleNote:'Люди появляются здесь, когда напишут в чат. «По умолчанию» значит голос из строк выше.',fwTitle:'Прошивка платы',onBoard:'на плате:',otaBtn:'Обновить по Wi-Fi',otaNote:'Сначала соберите новую прошивку: scripts/ota.ps1 (он же отправит её). Плата проверит образ и перезапустится сама.',check:'Проверка кнопок и светодиодов',testMode:'режим проверки (кнопки только зажигают лампы, не пишут и не играют)',btnRec:'Кнопка записи',btnNext:'Кнопка «дальше»',presses:'нажатий:',led0:'Светодиод «новое» (GPIO 18)',led1:'Подсветка записи (GPIO 4)',led2:'Светодиод платы (GPIO 2)',recs:'Записи',
 none:'пока нет',newRec:'новая',waiting:'ожидаю ESP32…',online:'ESP32 подключена',record:'Записать',stop:'Остановить',recording:'идёт запись {0} с',unknown:'неизвестна',otaBusy:'идёт передача…',otaAsk:'Отправить прошивку на плату? Это займёт около минуты, плата перезапустится.',otaSent:'отправлено {0} КБ, плата перезапустится',
@@ -99,22 +122,26 @@ none:'none yet',newRec:'new',waiting:'waiting for ESP32…',online:'ESP32 connec
 vNote:'The box reads Telegram text aloud. The Kazakh voice switches on by itself when the text has the letters ә, ғ, қ, ң, ө, ұ, ү, һ, і.',vNoTts:'Speech synthesis is not set up on the server yet. You can choose a voice in advance.',fromEnv:'as in server settings (.env)',ruDef:'Russian: default',kkDef:'Kazakh: default',nobody:'Nobody has written yet.',saved:'Saved',savedFor:'Saved for {0}',notSaved:'Not saved',speaking:'Speaking…',playing:'Playing on the box',chosen:' — chosen',choose:'Choose',
 s:'s',min:'min',h:'h',kb:'KB',ago:'updated {0} ago',yes:'yes',no:'no',
 tRssi:'Wi-Fi signal',tCh:'Channel / access point',tTx:'Transmit power',tIp:'Board IP',tUp:'Uptime',tReset:'Last reset reason',tLink:'Server link',tConn:'Server connections',tDrops:'Wi-Fi drops',tCode:'code',tCodec:'Audio compression',tPcm:'none (PCM)',tHeap:'Free memory',tMinShort:'min',tBlock:'Largest memory block',tCpu:'CPU frequency',tMhz:'MHz',tGap:'Loop stall, max',tMs:'ms',tLost:'Lost while recording',tSamples:'samples',tBuf:'Record buffer headroom (15 s)',tUnder:'Playback underruns',tUnplayed:'Unplayed',tTrial:'New firmware on trial'}};
-const tgLang=((window.Telegram&&Telegram.WebApp.initDataUnsafe||{}).user||{}).language_code;
-let L='ru';try{L=localStorage.getItem('lang')||(tgLang in T?tgLang:'ru')}catch(e){}
-const TG=window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData&&Telegram.WebApp.isVersionAtLeast('6.2')?Telegram.WebApp:null;
-const ask=m=>TG?new Promise(ok=>TG.showConfirm(m,ok)):Promise.resolve(confirm(m));
-const say=m=>TG?TG.showAlert(m):alert(m);
-const t=(k,...a)=>(T[L][k]??T.ru[k]).replace(/\{(\d)\}/g,(_,i)=>a[i]);
-function applyLang(){document.documentElement.lang=L;document.title=t('title');document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));
-document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===L));$('vNote').textContent=t(ttsReady?'vNote':'vNoTts')}
-let ttsReady=true;
+const tg=window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData?Telegram.WebApp:null;
+const tgLang=(((tg||{}).initDataUnsafe||{}).user||{}).language_code;
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const post=(url)=>fetch(url,{method:'POST'});
+const ask=m=>tg&&tg.isVersionAtLeast('6.2')?new Promise(ok=>tg.showConfirm(m,ok)):Promise.resolve(confirm(m));
+const say=m=>tg&&tg.isVersionAtLeast('6.2')?tg.showAlert(m):alert(m);
 
-const dur=x=>x==null?'—':x<60?x+' '+t('s'):x<3600?Math.floor(x/60)+' '+t('min'):Math.floor(x/3600)+' '+t('h')+' '+Math.floor(x%3600/60)+' '+t('min');
-const kb=x=>x==null?'—':(x/1024).toFixed(0)+' '+t('kb');
-function tele(s){const m=s.tele||{};const rows=[
+Vue.createApp({
+data:()=>({lang:store.get('lang')||(tgLang in T?tgLang:'ru'),page:store.get('page')||'home',
+st:{},files:[],voices:{presets:[],current:{ru:'',kk:''},senders:[],ready:true},sounds:{notify:[],boot:[],current:{}},
+vMsg:'',otaMsg:'',leds:[false,false,false],
+tabs:[{id:'home',label:'tabHome',icon:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'},
+{id:'voice',label:'tabVoice',icon:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'},
+{id:'sounds',label:'tabSounds',icon:'<path d="M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'},
+{id:'board',label:'tabBoard',icon:'<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/>'}]}),
+computed:{
+teleRows(){const s=this.st,m=s.tele||{},t=this.t,dur=this.dur,kb=x=>x==null?'—':(x/1024).toFixed(0)+' '+t('kb');return [
 [t('tRssi'),m.rssi!=null?m.rssi+' dBm':'—',m.rssi<-80],[t('tCh'),m.channel!=null?m.channel+' · '+m.bssid:'—'],
 [t('tTx'),m.txPower!=null?m.txPower+' dBm':'—'],[t('tIp'),m.ip||'—'],
-[t('tUp'),dur(m.uptime)],[t('tReset'),m.reset||'—',m.reset&&/wdt|panic|brownout/.test(m.reset)],
+[t('tUp'),dur(m.uptime)],[t('tReset'),m.reset||'—',!!m.reset&&/wdt|panic|brownout/.test(m.reset)],
 [t('tLink'),s.connected?dur(s.connectedFor):t('no'),!s.connected],[t('tConn'),(m.serverConnects??'—')+' / '+s.connects],
 [t('tDrops'),m.wifiDrops!=null?m.wifiDrops+(m.wifiDrops?' ('+t('tCode')+' '+m.lastDropReason+')':''):'—',m.wifiDrops>0],
 [t('tCodec'),s.adpcm?'ADPCM':t('tPcm')],[t('tHeap'),kb(m.heap)+' ('+t('tMinShort')+' '+kb(m.heapMin)+')',m.heapMin<40000],
@@ -123,33 +150,33 @@ function tele(s){const m=s.tele||{};const rows=[
 [t('tLost'),m.micDropped!=null?m.micDropped+' '+t('tSamples'):'—',m.micDropped>0],
 [t('tBuf'),kb(m.micBufFreeMin),m.micBufFreeMin<4096],
 [t('tUnder'),m.playUnderruns??'—',m.playUnderruns>0],[t('tUnplayed'),s.unplayed],
-[t('tTrial'),m.otaTrial?t('yes'):t('no')]];
-const h=rows.map(([k,v,bad])=>'<div'+(bad?' class="bad"':'')+'><small>'+k+'</small><b>'+String(v).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;')+'</b></div>').join('');
-if(tele.h!==h)$('tele').innerHTML=tele.h=h;set($('teleAge'),'textContent',s.teleAge!=null?t('ago',dur(s.teleAge)):'')}
-const set=(el,k,v)=>{if(el[k]!==v)el[k]=v};
-let last=null,files=-1;
-function render(s){if(!s)return;last=s;rec=s.recording;
-if(page==='board')tele(s);
-if(s.files!==files||s.unplayed!==render.u){files=s.files;render.u=s.unplayed;list()}
-set($('dot'),'className','dot'+(s.connected?' on':''));set($('conn'),'textContent',s.connected?t('online'):t('waiting'));
-if(page==='home'){set($('peer'),'textContent',s.connected?s.peer:'');set($('lvl').style,'width',Math.min(100,s.level/40)+'%');
-set($('btn'),'disabled',!s.connected);set($('btn'),'textContent',rec?t('stop'):t('record'));set($('btn'),'className',rec?'rec':'');
-set($('time'),'textContent',rec?t('recording',s.seconds.toFixed(0)):'')}
-if(page==='board'){set($('lRec'),'className',s.btnRec?'on':'');set($('lNext'),'className',s.btnNext?'on':'');set($('nRec'),'textContent',String(s.recPresses));set($('nNext'),'textContent',String(s.nextPresses));
-if(document.activeElement!==$('test'))set($('test'),'checked',!!s.test);set($('fw'),'textContent',s.fw||t('unknown'));set($('ota'),'disabled',!s.connected||s.otaBusy);if(s.otaBusy)set($('otaMsg'),'textContent',t('otaBusy'))}}
-async function tick(){try{render(await (await fetch('/api/status')).json())}catch(e){}}
-let poll=null;
-function stream(){const es=new EventSource('/api/events');
-es.onmessage=e=>{if(poll){clearInterval(poll);poll=null}render(JSON.parse(e.data))};
-es.onerror=()=>{if(!poll)poll=setInterval(tick,2000)}}
-async function list(){const f=await (await fetch('/api/list')).json();
-const el=$('list');if(el.contains(document.activeElement)||[...el.querySelectorAll('audio')].some(a=>!a.paused))return;
-el.innerHTML=f.length?f.map(r=>`<div class="file"><span>${r.name}${r.played?'':' <b class="new">'+t('newRec')+'</b>'}</span><audio controls preload="none" src="/rec/${r.name}" data-n="${r.name}"></audio></div>`).join(''):t('none');
-el.querySelectorAll('audio').forEach(a=>a.addEventListener('play',()=>fetch('/api/mark/'+a.dataset.n,{method:'POST'}),{once:true}))}
-document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{L=b.dataset.lang;try{localStorage.setItem('lang',L)}catch(e){}applyLang();voices();sounds();$('list').innerHTML='';list();render(last)});
-let page='home';try{page=localStorage.getItem('page')||page}catch(e){}
-function show(p){page=p;try{localStorage.setItem('page',p)}catch(e){}document.querySelectorAll('[data-page]').forEach(e=>e.hidden=e.dataset.page!==p);
-document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('on',b.dataset.tab===p);b.setAttribute('aria-current',b.dataset.tab===p?'page':'false')});scrollTo(0,0);render(last)}
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>show(b.dataset.tab));show(page);
-applyLang();tick();stream();
+[t('tTrial'),m.otaTrial?t('yes'):t('no')]]}},
+watch:{
+lang:{handler(l){store.set('lang',l);document.documentElement.lang=l;document.title=this.t('title')},immediate:true},
+page(p){store.set('page',p);scrollTo(0,0)},
+'st.files'(){this.loadFiles()},'st.unplayed'(){this.loadFiles()}},
+methods:{
+t(k,...a){return (T[this.lang][k]??T.ru[k]??k).replace(/\{(\d)\}/g,(_,i)=>a[i])},
+dur(x){const t=this.t;return x==null?'—':x<60?x+' '+t('s'):x<3600?Math.floor(x/60)+' '+t('min'):Math.floor(x/3600)+' '+t('h')+' '+Math.floor(x%3600/60)+' '+t('min')},
+setLang(l){this.lang=l},
+show(p){this.page=p},
+presetsFor(l){return this.voices.presets.filter(p=>p.kk===(l==='kk'))},
+async loadStatus(){try{this.st=await (await fetch('/api/status')).json()}catch(e){}},
+stream(){let poll=null;const es=new EventSource('/api/events');
+es.onmessage=e=>{if(poll){clearInterval(poll);poll=null}this.st=JSON.parse(e.data)};
+es.onerror=()=>{if(!poll)poll=setInterval(()=>this.loadStatus(),2000)}},
+async loadFiles(){if([...document.querySelectorAll('audio')].some(a=>!a.paused))return;try{this.files=await (await fetch('/api/list')).json()}catch(e){}},
+markPlayed(f){if(!f.played){f.played=true;post('/api/mark/'+f.name)}},
+async toggleRec(){await post(this.st.recording?'/api/stop':'/api/start');this.loadStatus()},
+async loadVoices(){try{const d=await (await fetch('/api/voices')).json();d.current={ru:'',kk:'',...d.current};this.voices=d}catch(e){}},
+async selectVoice(lang,id,person){let u='/api/voice/select?lang='+lang+'&id='+encodeURIComponent(id||'');if(person)u+='&user='+person.id;
+const r=await post(u);this.vMsg=r.ok?(person?this.t('savedFor',person.name||person.id):this.t('saved')):this.t('notSaved')},
+async testVoice(lang){this.vMsg=this.t('speaking');const r=await (await post('/api/voice/test?lang='+lang+'&id='+encodeURIComponent(this.voices.current[lang]||''))).json();this.vMsg=r.ok?this.t('playing'):r.error},
+async loadSounds(){try{this.sounds=await (await fetch('/api/sounds')).json()}catch(e){}},
+async sound(a,kind,id){const r=await (await post('/api/sound/'+a+'?kind='+kind+'&id='+id)).json();if(!r.ok)say(r.error);if(a==='select')this.loadSounds()},
+async ota(){if(!await ask(this.t('otaAsk')))return;const r=await (await post('/api/ota')).json();this.otaMsg=r.ok?this.t('otaSent',Math.round(r.bytes/1024)):r.error},
+setTest(on){post('/api/test?on='+(on?1:0))},
+async led(i){const on=!this.leds[i];const r=await (await post('/api/led?id='+i+'&on='+(on?1:0))).json();if(r.ok)this.leds[i]=on}},
+mounted(){this.loadStatus();this.stream();this.loadFiles();this.loadVoices();this.loadSounds();}
+}).mount('#app');
 </script></html>
