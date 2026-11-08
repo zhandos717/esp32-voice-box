@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Микрофон ESP32</title>
 <style>
 :root{--bg:var(--tg-theme-secondary-bg-color,#f4f5f6);--fg:var(--tg-theme-text-color,#161a1d);--mut:var(--tg-theme-hint-color,#5d6870);--card:var(--tg-theme-section-bg-color,var(--tg-theme-bg-color,#fff));--line:color-mix(in srgb,var(--mut) 30%,transparent);--acc:var(--tg-theme-button-color,#0b7a6b);--acc-fg:var(--tg-theme-button-text-color,#fff);--rec:var(--tg-theme-destructive-text-color,#c62f2f)}
@@ -26,6 +26,8 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 [data-page][hidden]{display:none}
 .snds{display:grid;gap:6px;margin-top:8px}.snd{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}.snd.cur{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent)}.snd span{flex:1}.snd button{padding:6px 12px}
 [v-cloak]{display:none}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%}
+select,input{font-size:16px!important}
 </style>
 <div id="app" v-cloak>
 <main>
