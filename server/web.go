@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -35,31 +37,38 @@ func (s *server) web() http.Handler {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
 		w.Write(page)
 	})
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		unplayed := len(s.unplayed())
-		s.mu.Lock()
-		level := s.level
-		if time.Since(s.lastAudio) > time.Second {
-			level = 0
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, s.status()) })
+	// a push stream of the same status: the page redraws only when something has changed
+	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		fl, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "no streaming", http.StatusInternalServerError)
+			return
 		}
-		secs := 0.0
-		if s.recording {
-			secs = time.Since(s.started).Seconds()
+		w.Header().Set("content-type", "text/event-stream")
+		w.Header().Set("cache-control", "no-cache")
+		w.Header().Set("x-accel-buffering", "no") // nginx would otherwise hold the events back
+		tk := time.NewTicker(200 * time.Millisecond)
+		defer tk.Stop()
+		var last []byte
+		quiet := 0
+		for {
+			b, _ := json.Marshal(s.status())
+			if !bytes.Equal(b, last) {
+				last, quiet = b, 0
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			} else if quiet++; quiet >= 75 {
+				quiet = 0
+				fmt.Fprint(w, ": ping\n\n")
+				fl.Flush()
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-tk.C:
+			}
 		}
-		st := map[string]any{"connected": s.connected, "peer": s.peer, "recording": s.recording, "level": level, "seconds": secs,
-			"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode,
-			"rssi": s.rssi, "adpcm": s.adpcm, "connects": s.connects, "tele": s.tele, "unplayed": unplayed}
-		if s.connected {
-			st["connectedFor"] = int(time.Since(s.connectedAt).Seconds())
-		}
-		if !s.teleAt.IsZero() {
-			st["teleAge"] = int(time.Since(s.teleAt).Seconds())
-		}
-		if !s.lastGone.IsZero() {
-			st["lastGoneAgo"] = int(time.Since(s.lastGone).Seconds())
-		}
-		s.mu.Unlock()
-		jsonOut(w, st)
 	})
 	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		set := s.playedSet()
@@ -335,4 +344,32 @@ func (s *server) web() http.Handler {
 		http.ServeFile(w, r, filepath.Join(s.recDir, name))
 	})
 	return mux
+}
+
+func (s *server) status() map[string]any {
+	files := len(s.allWavs())
+	unplayed := len(s.unplayed())
+	s.mu.Lock()
+	level := s.level
+	if time.Since(s.lastAudio) > time.Second {
+		level = 0
+	}
+	secs := 0.0
+	if s.recording {
+		secs = time.Since(s.started).Seconds()
+	}
+	st := map[string]any{"connected": s.connected, "peer": s.peer, "recording": s.recording, "level": level, "seconds": secs,
+		"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode,
+		"rssi": s.rssi, "adpcm": s.adpcm, "connects": s.connects, "tele": s.tele, "unplayed": unplayed, "files": files}
+	if s.connected {
+		st["connectedFor"] = int(time.Since(s.connectedAt).Seconds())
+	}
+	if !s.teleAt.IsZero() {
+		st["teleAge"] = int(time.Since(s.teleAt).Seconds())
+	}
+	if !s.lastGone.IsZero() {
+		st["lastGoneAgo"] = int(time.Since(s.lastGone).Seconds())
+	}
+	s.mu.Unlock()
+	return st
 }
