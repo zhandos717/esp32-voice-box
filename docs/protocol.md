@@ -41,4 +41,4 @@
 
 ## Веб-интерфейс (только 127.0.0.1:8801)
 
-`GET /` страница · `GET /api/status` · `GET /api/list` · `POST /api/start` · `POST /api/stop` · `POST /api/mark/<имя>` · `GET /rec/<имя>.wav`
+`GET /` страница · `GET /api/status` · `GET /api/list?limit=N` (новые сверху, `{items, total}`) · `GET /api/events` (SSE со статусом) · `POST /api/start` · `POST /api/stop` · `POST /api/mark/<имя>` · `GET /rec/<имя>.wav`

@@ -81,11 +81,15 @@ func (s *server) web() http.Handler {
 	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		set := s.playedSet()
 		names := s.allWavs()
-		out := make([]map[string]any, 0, len(names))
-		for i := len(names) - 1; i >= 0; i-- { // newest first
+		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil || limit <= 0 {
+			limit = len(names)
+		}
+		out := make([]map[string]any, 0, min(limit, len(names)))
+		for i := len(names) - 1; i >= 0 && len(out) < limit; i-- { // newest first
 			out = append(out, map[string]any{"name": names[i], "played": set[names[i]]})
 		}
-		jsonOut(w, out)
+		jsonOut(w, map[string]any{"items": out, "total": len(names)})
 	})
 	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
