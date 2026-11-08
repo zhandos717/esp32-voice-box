@@ -124,47 +124,32 @@ function tele(s){const m=s.tele||{};const rows=[
 [t('tBuf'),kb(m.micBufFreeMin),m.micBufFreeMin<4096],
 [t('tUnder'),m.playUnderruns??'—',m.playUnderruns>0],[t('tUnplayed'),s.unplayed],
 [t('tTrial'),m.otaTrial?t('yes'):t('no')]];
-$('tele').innerHTML=rows.map(([k,v,bad])=>'<div'+(bad?' class="bad"':'')+'><small>'+k+'</small><b>'+String(v).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;')+'</b></div>').join('');
-$('teleAge').textContent=s.teleAge!=null?t('ago',dur(s.teleAge)):''}
-async function tick(){try{const s=await (await fetch('/api/status')).json();rec=s.recording;tele(s);
-$('dot').className='dot'+(s.connected?' on':'');$('conn').textContent=s.connected?t('online'):t('waiting');
-$('peer').textContent=s.connected?s.peer:'';$('lvl').style.width=Math.min(100,s.level/40)+'%';
-$('btn').disabled=!s.connected;$('btn').textContent=rec?t('stop'):t('record');$('btn').className=rec?'rec':'';
-$('time').textContent=rec?t('recording',s.seconds.toFixed(0)):'';
-$('lRec').className=s.btnRec?'on':'';$('lNext').className=s.btnNext?'on':'';$('nRec').textContent=s.recPresses;$('nNext').textContent=s.nextPresses;
-if(document.activeElement!==$('test'))$('test').checked=s.test;$('fw').textContent=s.fw||t('unknown');$('ota').disabled=!s.connected||s.otaBusy;if(s.otaBusy)$('otaMsg').textContent=t('otaBusy');}catch(e){}}
-$('ota').onclick=async()=>{if(!await ask(t('otaAsk')))return;const r=await (await fetch('/api/ota',{method:'POST'})).json();$('otaMsg').textContent=r.ok?t('otaSent',Math.round(r.bytes/1024)):r.error};
-async function voices(){const d=await (await fetch('/api/voices')).json();
-for(const [lang,el] of [['ru',$('vRu')],['kk',$('vKk')]]){const kk=lang==='kk';
-el.innerHTML='<option value="">'+t('fromEnv')+'</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
-el.value=d.current[lang]||'';
-el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?t('saved'):t('notSaved')}}
-const opts=(kk,dflt)=>'<option value="">'+dflt+'</option>'+d.presets.filter(p=>p.kk===kk).map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
-const esc=t=>String(t).replace(/[<&"]/g,c=>({'<':'&lt;','&':'&amp;','"':'&quot;'}[c]));
-$('vPeople').innerHTML=d.senders.length?d.senders.map(p=>'<div class="person"><b>'+esc(p.name||('id '+p.id))+'</b>'+
-'<select id="pr-'+p.id+'" aria-label="'+t('ru')+': '+esc(p.name)+'">'+opts(false,t('ruDef'))+'</select>'+
-'<select id="pk-'+p.id+'" aria-label="'+t('kk')+': '+esc(p.name)+'">'+opts(true,t('kkDef'))+'</select></div>').join(''):'<span class="mut">'+t('nobody')+'</span>';
-for(const p of d.senders)for(const [lang,el] of [['ru',$('pr-'+p.id)],['kk',$('pk-'+p.id)]]){el.value=p[lang]||'';
-el.onchange=async()=>{const r=await fetch('/api/voice/select?lang='+lang+'&user='+p.id+'&id='+encodeURIComponent(el.value),{method:'POST'});$('vMsg').textContent=r.ok?t('savedFor',p.name||p.id):t('notSaved')}}
-ttsReady=d.ready;applyLang();
-for(const [lang,b,sel] of [['ru',$('tRu'),$('vRu')],['kk',$('tKk'),$('vKk')]])b.onclick=async e=>{e.preventDefault();$('vMsg').textContent=t('speaking');
-const r=await (await fetch('/api/voice/test?lang='+lang+'&id='+encodeURIComponent(sel.value),{method:'POST'})).json();$('vMsg').textContent=r.ok?t('playing'):r.error}}
-voices();
-async function sounds(){const d=await (await fetch('/api/sounds')).json();
-for(const [kind,box] of [['notify','sndNotify'],['boot','sndBoot']]){$(box).innerHTML=d[kind].map(x=>`<div class="snd${d.current[kind]===x.id?' cur':''}"><span>${x.name}${d.current[kind]===x.id?t('chosen'):''}</span>${x.id?`<button class="led" data-k="${kind}" data-id="${x.id}" data-a="play">▶</button>`:''}<button data-k="${kind}" data-id="${x.id}" data-a="select">${t('choose')}</button></div>`).join('')}}
-document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const r=await (await fetch('/api/sound/'+b.dataset.a+'?kind='+b.dataset.k+'&id='+b.dataset.id,{method:'POST'})).json();if(!r.ok)say(r.error);if(b.dataset.a==='select')sounds()});
-sounds();
-$('test').onchange=()=>fetch('/api/test?on='+($('test').checked?1:0),{method:'POST'});
-document.querySelectorAll('button.led').forEach(b=>b.onclick=async()=>{const on=!b.classList.contains('on');const r=await (await fetch('/api/led?id='+b.dataset.id+'&on='+(on?1:0),{method:'POST'})).json();if(r.ok)b.classList.toggle('on',on)});
-$('btn').onclick=async()=>{await fetch(rec?'/api/stop':'/api/start',{method:'POST'});tick();setTimeout(list,400)};
+const h=rows.map(([k,v,bad])=>'<div'+(bad?' class="bad"':'')+'><small>'+k+'</small><b>'+String(v).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;')+'</b></div>').join('');
+if(tele.h!==h)$('tele').innerHTML=tele.h=h;set($('teleAge'),'textContent',s.teleAge!=null?t('ago',dur(s.teleAge)):'')}
+const set=(el,k,v)=>{if(el[k]!==v)el[k]=v};
+let last=null,files=-1;
+function render(s){if(!s)return;last=s;rec=s.recording;
+if(page==='board')tele(s);
+if(s.files!==files||s.unplayed!==render.u){files=s.files;render.u=s.unplayed;list()}
+set($('dot'),'className','dot'+(s.connected?' on':''));set($('conn'),'textContent',s.connected?t('online'):t('waiting'));
+if(page==='home'){set($('peer'),'textContent',s.connected?s.peer:'');set($('lvl').style,'width',Math.min(100,s.level/40)+'%');
+set($('btn'),'disabled',!s.connected);set($('btn'),'textContent',rec?t('stop'):t('record'));set($('btn'),'className',rec?'rec':'');
+set($('time'),'textContent',rec?t('recording',s.seconds.toFixed(0)):'')}
+if(page==='board'){set($('lRec'),'className',s.btnRec?'on':'');set($('lNext'),'className',s.btnNext?'on':'');set($('nRec'),'textContent',String(s.recPresses));set($('nNext'),'textContent',String(s.nextPresses));
+if(document.activeElement!==$('test'))set($('test'),'checked',!!s.test);set($('fw'),'textContent',s.fw||t('unknown'));set($('ota'),'disabled',!s.connected||s.otaBusy);if(s.otaBusy)set($('otaMsg'),'textContent',t('otaBusy'))}}
+async function tick(){try{render(await (await fetch('/api/status')).json())}catch(e){}}
+let poll=null;
+function stream(){const es=new EventSource('/api/events');
+es.onmessage=e=>{if(poll){clearInterval(poll);poll=null}render(JSON.parse(e.data))};
+es.onerror=()=>{if(!poll)poll=setInterval(tick,2000)}}
 async function list(){const f=await (await fetch('/api/list')).json();
 const el=$('list');if(el.contains(document.activeElement)||[...el.querySelectorAll('audio')].some(a=>!a.paused))return;
 el.innerHTML=f.length?f.map(r=>`<div class="file"><span>${r.name}${r.played?'':' <b class="new">'+t('newRec')+'</b>'}</span><audio controls preload="none" src="/rec/${r.name}" data-n="${r.name}"></audio></div>`).join(''):t('none');
 el.querySelectorAll('audio').forEach(a=>a.addEventListener('play',()=>fetch('/api/mark/'+a.dataset.n,{method:'POST'}),{once:true}))}
-document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{L=b.dataset.lang;try{localStorage.setItem('lang',L)}catch(e){}applyLang();voices();sounds();tick();$('list').innerHTML='';list()});
+document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{L=b.dataset.lang;try{localStorage.setItem('lang',L)}catch(e){}applyLang();voices();sounds();$('list').innerHTML='';list();render(last)});
 let page='home';try{page=localStorage.getItem('page')||page}catch(e){}
 function show(p){page=p;try{localStorage.setItem('page',p)}catch(e){}document.querySelectorAll('[data-page]').forEach(e=>e.hidden=e.dataset.page!==p);
-document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('on',b.dataset.tab===p);b.setAttribute('aria-current',b.dataset.tab===p?'page':'false')});scrollTo(0,0)}
+document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('on',b.dataset.tab===p);b.setAttribute('aria-current',b.dataset.tab===p?'page':'false')});scrollTo(0,0);render(last)}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>show(b.dataset.tab));show(page);
-applyLang();setInterval(tick,250);setInterval(list,4000);tick();list();
+applyLang();tick();stream();
 </script></html>
