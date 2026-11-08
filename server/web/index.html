@@ -50,13 +50,13 @@ select,input{font-size:16px!important}
 <strong>{{ t('voice') }}</strong>
 <div class="mut">{{ voices.ready===false?t('vNoTts'):t('vNote') }}</div>
 <label class="vrow" v-for="l in ['ru','kk']" :key="l"><span>{{ t(l) }}</span>
-<select v-model="voices.current[l]" @change="selectVoice(l,voices.current[l])"><option value="">{{ t('fromEnv') }}</option><option v-for="p in presetsFor(l)" :value="p.id">{{ p.name }}</option></select>
+<select v-model="voices.current[l]" @change="selectVoice(l,voices.current[l])"><option value="">{{ t('fromEnv') }}</option><option v-for="p in presetsFor(l)" :value="p.id">{{ nm(p) }}</option></select>
 <button class="led" @click.prevent="testVoice(l)">{{ t('listen') }}</button></label>
 <span class="mut">{{ vMsg }}</span>
 <div><b>{{ t('people') }}</b><div class="mut">{{ t('peopleNote') }}</div>
 <div class="snds"><span class="mut" v-if="!voices.senders.length">{{ t('nobody') }}</span>
 <div class="person" v-for="p in voices.senders" :key="p.id"><b>{{ p.name||('id '+p.id) }}</b>
-<select v-for="l in ['ru','kk']" :key="l" v-model="p[l]" :aria-label="t(l)+': '+p.name" @change="selectVoice(l,p[l],p)"><option value="">{{ t(l+'Def') }}</option><option v-for="v in presetsFor(l)" :value="v.id">{{ v.name }}</option></select>
+<select v-for="l in ['ru','kk']" :key="l" v-model="p[l]" :aria-label="t(l)+': '+p.name" @change="selectVoice(l,p[l],p)"><option value="">{{ t(l+'Def') }}</option><option v-for="v in presetsFor(l)" :value="v.id">{{ nm(v) }}</option></select>
 </div></div></div>
 </section>
 
@@ -64,7 +64,7 @@ select,input{font-size:16px!important}
 <strong>{{ t('sounds') }}</strong>
 <div class="mut">{{ t('soundsNote') }}</div>
 <div v-for="kind in ['notify','boot']" :key="kind"><b>{{ t(kind) }}</b><div class="snds">
-<div class="snd" v-for="x in sounds[kind]" :key="x.id" :class="{cur:sounds.current[kind]===x.id}"><span>{{ x.name }}{{ sounds.current[kind]===x.id?t('chosen'):'' }}</span>
+<div class="snd" v-for="x in sounds[kind]" :key="x.id" :class="{cur:sounds.current[kind]===x.id}"><span>{{ nm(x) }}{{ sounds.current[kind]===x.id?t('chosen'):'' }}</span>
 <button class="led" v-if="x.id" @click="sound('play',kind,x.id)">▶</button><button @click="sound('select',kind,x.id)">{{ t('choose') }}</button></div>
 </div></div>
 </section>
@@ -162,6 +162,7 @@ t(k,...a){return (T[this.lang][k]??T.ru[k]??k).replace(/\{(\d)\}/g,(_,i)=>a[i])}
 dur(x){const t=this.t;return x==null?'—':x<60?x+' '+t('s'):x<3600?Math.floor(x/60)+' '+t('min'):Math.floor(x/3600)+' '+t('h')+' '+Math.floor(x%3600/60)+' '+t('min')},
 setLang(l){this.lang=l},
 show(p){this.page=p},
+nm(x){return (this.lang==='kk'&&x.nameKk)||(this.lang==='en'&&x.nameEn)||x.name},
 presetsFor(l){return this.voices.presets.filter(p=>p.kk===(l==='kk'))},
 async loadStatus(){try{this.st=await (await fetch('/api/status')).json()}catch(e){}},
 stream(){let poll=null;const es=new EventSource('/api/events');

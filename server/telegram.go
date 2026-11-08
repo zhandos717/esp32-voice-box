@@ -469,11 +469,7 @@ func (t *telegram) handle(m *tgMessage) {
 			log.Println("telegram: text to speech failed -", err)
 			return
 		}
-		label := voice.Name
-		if label == "" {
-			label = voice.Voice
-		}
-		t.enqueue(chat, thread, m.MessageID, kk, pcm, "text read aloud", label)
+		t.enqueue(chat, thread, m.MessageID, kk, pcm, "text read aloud", voice.label(kk))
 		return
 	}
 	data, err := t.download(media.FileID)

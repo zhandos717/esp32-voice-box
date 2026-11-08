@@ -41,7 +41,8 @@ func TestSession(t *testing.T) {
 	if tg.sessionUser(tg.newSession(7)) {
 		t.Fatal("session of a user outside MIC_WEB_USERS accepted")
 	}
-	if tg.sessionUser(v[:len(v)-1] + "0") {
+	flip := map[bool]string{true: "1", false: "0"}[v[len(v)-1] == '0']
+	if tg.sessionUser(v[:len(v)-1] + flip) {
 		t.Fatal("tampered session accepted")
 	}
 	if (&telegram{token: "123:other"}).sessionUser(v) {
