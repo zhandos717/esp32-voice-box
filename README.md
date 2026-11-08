@@ -1,60 +1,86 @@
-# ESP32 + INMP441: микрофон, колонка и Telegram
+# ESP32 Voice Box
 
-Плата ESP32 слушает микрофон INMP441. Пока удержана кнопка, звук по Wi-Fi идёт на сервер на ПК: он пишет WAV, ведёт очередь
-«не прослушано» и пересылает записи в Telegram. Голосовые из Telegram возвращаются в очередь, и плата проигрывает их на колонке.
+[![CI](https://github.com/zhandos717/esp32-voice-box/actions/workflows/ci.yml/badge.svg)](https://github.com/zhandos717/esp32-voice-box/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**English** · [Русский](README.ru.md)
+
+A walkie-talkie between a child and family on Telegram. A small box with an ESP32, a microphone, a speaker and two buttons:
+hold the button and speak, and the message lands in a Telegram chat. Voice and text messages from the chat come back and play
+on the box speaker.
+
+![Assembly](hardware/enclosure/assembly.png)
+
+## Features
+
+- **Push to talk.** Hold the button to record; recording keeps going for 2.5 s after release, so the last word is not cut.
+  The button click at the start is removed and silence at the end is trimmed.
+- **Telegram bridge.** Recordings go to a chat or a forum topic. Voice notes, audio files and video notes from the chat are queued
+  on the box; the sender gets 👌 when the message has been played.
+- **Text to speech.** Text messages are read aloud. Russian and Kazakh are detected automatically. Voices: Microsoft neural voices
+  (Azure key, or edge-tts without a key), Piper offline, plus cartoon effects (chipmunk, robot, bear…). Each chat member can have
+  their own voice.
+- **New-message chime** on the box, repeated quietly while something is unplayed.
+- **Telegram Mini App** control panel: live status over SSE, board telemetry, voices, sounds, firmware update, button and LED test.
+  Vue 3 without a build step, in Russian, Kazakh and English.
+- **IMA ADPCM** audio both ways: four times less traffic, works on weak Wi-Fi.
+- **OTA updates** with automatic rollback if the new firmware does not reach the server.
+- **3D-printable enclosure** (OpenSCAD and STL) in [hardware/enclosure](hardware/enclosure).
+
+## How it works
 
 ```
- ESP32 (firmware/) ──Wi-Fi, TCP 8800──▶ сервер (server/) ──▶ recordings/*.wav
-   микрофон, кнопки, колонка                  ├──▶ Telegram-бот
-                                              └── страница http://127.0.0.1:8801
+ ESP32 box ──Wi-Fi, TCP 8800 (password)──▶ Go server ──▶ recordings/*.wav
+  mic, speaker, buttons, LEDs                 ├──▶ Telegram bot (long polling)
+                                              └──▶ Mini App over HTTPS (nginx)
 ```
 
-## Структура
-
-```
-esp32-mic/
-├─ firmware/mic_stream/    прошивка ESP32: mic_stream.ino + config.h (пины и константы)
-├─ server/                 сервер на Go: main, board, queue, wav, web (+web/index.html), telegram, dotenv
-├─ legacy/server-py/       первая версия сервера на Python (запасная)
-├─ tools/set_wifi.py       записать Wi-Fi и адрес ПК в плату по USB
-├─ scripts/                build-server · run-server · flash-firmware · test (PowerShell)
-├─ tests/run_tg_test.py    проверка без железа: подставная плата и Telegram
-├─ config/                 примеры настроек
-├─ docs/                   подключение, протокол, Telegram, если не работает
-├─ .env.example            образец .env (сам .env в .gitignore)
-└─ recordings/             записи (создаётся при запуске, в .gitignore)
-```
-
-## Быстрый старт
-
-1. **Прошивка:** `.\scripts\flash-firmware.ps1 -Port COM11`
-2. **Wi-Fi** (один раз; пароль вводите вы, он уходит только на плату; сеть 2,4 ГГц):
-   `python tools\set_wifi.py COM11 --show`
-3. **Сервер:** `.\scripts\run-server.ps1`, затем откройте http://127.0.0.1:8801
-4. Подключите микрофон, кнопки и колонку по [docs/wiring.md](docs/wiring.md). Зажали кнопку записи: говорите, отпустили: запись сохранена.
-
-Windows при первом запуске спросит разрешение для сети: разрешите для частных сетей, иначе плата не достучится до порта 8800.
-
-## Настройки
-
-Секреты лежат в `.env` в корне проекта (образец: `.env.example`), в репозиторий он не попадает:
-
-| Переменная | Что |
+| Part | What |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` (допустимы `TELEGRAM_BOT`, `TELEGRAM_TOKEN`) | токен бота от @BotFather |
-| `TELEGRAM_CHAT_ID` | числовой ID чата; пока пуст, бот в режиме привязки |
-| `TELEGRAM_THREAD_ID` | номер топика группы-форума (команда `/id` в топике), пусто если топиков нет |
-| `MIC_REC_DIR`, `MIC_GAIN`, `MIC_MAX_SECONDS`, `FFMPEG` | папка записей, усиление (4), предел записи (300 с), путь к ffmpeg |
-| `MIC_REMIND_SECONDS` | как часто напоминать звуком о непрослушанных (5 с, 0 = выключено) |
-| `MIC_TAIL_MS` | сколько ещё писать после отпускания кнопки (2500 мс; тишина в конце обрезается) |
-| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_SPEECH_VOICE` | озвучка текстовых сообщений голосом Microsoft (без них текст не принимается) |
-| `TTS_PITCH`, `TTS_RATE`, `TTS_EFFECT` | мультяшный голос: высота и темп (Azure), эффект `chipmunk` или `robot` |
-| `EDGE_TTS` | путь к edge-tts: голоса Microsoft без ключа, неофициально, для домашнего использования |
-| `PIPER`, `PIPER_MODEL` | озвучка без облака через Piper, если не заданы Azure и edge-tts |
+| Board | ESP32 DevKit (no PSRAM needed), Arduino core esp32 3.3.x |
+| Microphone | INMP441 (I2S) |
+| Speaker | MAX98357A amplifier (I2S) and a 3–4 W speaker |
+| Controls | record button, "next" button, three LEDs |
+| Server | Go, no external dependencies; ffmpeg for Telegram audio |
 
-Подробнее: [Telegram](docs/telegram.md) · [протокол](docs/protocol.md) · [если не работает](docs/troubleshooting.md).
+Wiring: [docs/wiring.md](docs/wiring.md) · protocol: [docs/protocol.md](docs/protocol.md).
 
-## Проверка
+## Quick start
 
-`.\scripts\test.ps1` собирает сервер и гоняет 13 проверок с подставной платой и подставным Telegram (свои порты и папка `tests\run\`,
-реальные записи и токен не затрагиваются).
+1. **Firmware.** Build and flash `firmware/mic_stream`:
+   ```bash
+   arduino-cli compile --fqbn esp32:esp32:esp32 firmware/mic_stream
+   arduino-cli upload  --fqbn esp32:esp32:esp32 -p <port> firmware/mic_stream
+   ```
+2. **Wi-Fi and server address** go to the board over USB (2.4 GHz network):
+   ```bash
+   python tools/set_wifi.py <port> --show
+   ```
+3. **Server.** Copy `.env.example` to `.env`, set `TELEGRAM_BOT_TOKEN` and `MIC_TOKEN`, then:
+   ```bash
+   cd server
+   go build -o mic_server .
+   ./mic_server
+   ```
+   The web panel is at http://127.0.0.1:8801. Write `/id` to the bot in your chat to get `TELEGRAM_CHAT_ID`.
+4. **VPS with HTTPS and the Mini App:** [docs/deploy-vps.md](docs/deploy-vps.md). Telegram setup: [docs/telegram.md](docs/telegram.md).
+
+All settings are listed in [.env.example](.env.example). Troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md).
+
+## Tests
+
+```bash
+cd server && go vet ./... && go test ./...
+```
+
+`scripts/test.ps1` also runs an end-to-end test with a fake board and a fake Telegram API.
+
+Most docs are in Russian; issues and pull requests in English or Russian are welcome.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE). Bundled third-party code: [THIRD_PARTY.md](THIRD_PARTY.md).

@@ -1,0 +1,22 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      description: Control panel → "Board" tab
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: journalctl -u esp32-voice-box -n 100 (without tokens or addresses)
+      render: text
