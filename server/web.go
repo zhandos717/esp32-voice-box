@@ -21,6 +21,9 @@ import (
 //go:embed web/index.html
 var page []byte
 
+//go:embed web/vue.js
+var vueJS []byte
+
 // ---------- web (127.0.0.1 only) ----------
 
 func (s *server) web() http.Handler {
@@ -36,6 +39,11 @@ func (s *server) web() http.Handler {
 		}
 		w.Header().Set("content-type", "text/html; charset=utf-8")
 		w.Write(page)
+	})
+	mux.HandleFunc("/vue.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/javascript; charset=utf-8")
+		w.Header().Set("cache-control", "public, max-age=604800")
+		w.Write(vueJS)
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, s.status()) })
 	// a push stream of the same status: the page redraws only when something has changed
