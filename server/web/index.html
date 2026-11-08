@@ -73,7 +73,6 @@ button.led{background:var(--card);color:var(--fg);border-color:var(--line)}butto
 <script>
 (async()=>{const tg=window.Telegram&&Telegram.WebApp;if(!tg||!tg.initData)return;tg.ready();tg.expand();
 if(tg.isVersionAtLeast('6.1')){tg.setHeaderColor('secondary_bg_color');tg.setBackgroundColor('secondary_bg_color')}
-if(tg.isVersionAtLeast('7.7'))tg.disableVerticalSwipes();
 document.addEventListener('click',e=>{if(e.target.closest('button')&&tg.isVersionAtLeast('6.1'))tg.HapticFeedback.impactOccurred('light')});
 
 if((await fetch("/api/status")).status===401&&(await fetch("/auth",{method:"POST",body:tg.initData})).ok)location.reload()})();
