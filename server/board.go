@@ -78,7 +78,8 @@ func (s *server) onOpus(b []byte) {
 	defer s.mu.Unlock()
 	s.lastAudio = time.Now()
 	s.level = int(b[0]) * 32
-	if s.recording && s.raw != nil && s.recOpus {
+	// counted by packets, not by the clock: a board sending faster than real time cannot grow the file past maxRecording
+	if s.recording && s.raw != nil && s.recOpus && s.recSamples < int(maxRecording.Seconds())*int(s.rate) {
 		s.raw.Write(binary.LittleEndian.AppendUint16(nil, uint16(len(b)-1)))
 		s.raw.Write(b[1:])
 		s.recSamples += int(s.rate) / 50
@@ -154,6 +155,9 @@ func (s *server) finishRecording() string {
 		var ogg []byte
 		if ogg, err = opusToOgg(data, rate); err == nil {
 			data, err = decodeToPCM(ogg)
+		}
+		if limit := int(maxRecording.Seconds()) * int(rate) * 2; len(data) > limit { // a packet may hold up to 120 ms
+			data = data[:limit]
 		}
 		if err != nil {
 			log.Println("Opus recording lost:", err)
