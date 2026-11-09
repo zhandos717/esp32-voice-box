@@ -5,6 +5,7 @@ recordings/
 *.exe
 *.log
 build/
+firmware/libraries/
 tests/run/
 __pycache__/
 .tg_offset

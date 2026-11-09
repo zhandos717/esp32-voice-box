@@ -5,7 +5,8 @@ if (-not (Test-Path $Cli)) { $Cli = (Get-Command arduino-cli -ErrorAction Stop).
 $root = Join-Path $PSScriptRoot '..'
 $sketch = Join-Path $root 'firmware\mic_stream'
 $out = Join-Path $root 'firmware\build'
-& $Cli compile --fqbn esp32:esp32:esp32 --output-dir $out $sketch
+& (Join-Path $PSScriptRoot 'get-libs.ps1')
+& $Cli compile --fqbn esp32:esp32:esp32 --libraries (Join-Path $root 'firmware\libraries') --output-dir $out $sketch
 if ($LASTEXITCODE -ne 0) { exit 1 }
 $before = (Invoke-RestMethod "$Web/api/status").fw
 Write-Host "на плате сейчас: $before"

@@ -372,7 +372,7 @@ func (s *server) status() map[string]any {
 	}
 	st := map[string]any{"connected": s.connected, "peer": s.peer, "recording": s.recording, "level": level, "seconds": secs,
 		"fw": s.fw, "otaBusy": s.otaBusy, "btnRec": s.btnRec, "btnNext": s.btnNext, "recPresses": s.recPresses, "nextPresses": s.nextPresses, "test": s.testMode,
-		"rssi": s.rssi, "adpcm": s.adpcm, "connects": s.connects, "tele": s.tele, "unplayed": unplayed, "files": files}
+		"rssi": s.rssi, "adpcm": s.adpcm, "opus": s.opus, "connects": s.connects, "tele": s.tele, "unplayed": unplayed, "files": files}
 	if s.connected {
 		st["connectedFor"] = int(time.Since(s.connectedAt).Seconds())
 	}

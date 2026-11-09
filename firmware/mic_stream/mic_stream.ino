@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include "adpcm.h"
+#include "opus.h"
 
 // a note of a sound: start Hz, end Hz, ms, loudness, decay ms (0 = none), 2nd harmonic (declared here: the Arduino prototypes need it early)
 struct Note { float f0, f1; uint16_t ms; float amp, tau, h2; };
@@ -52,6 +53,7 @@ static inline int16_t micSample(int32_t x) {
 
 // telemetry counters, sent to the server every 15 s (frame type 10, JSON)
 volatile uint32_t micDropped = 0, playUnderruns = 0;
+uint32_t opusMaxUs = 0;                     // slowest Opus frame since the last telemetry: 20 ms of audio must take well under 20 ms
 volatile size_t micFreeMin = SIZE_MAX;
 uint32_t wifiDrops = 0, serverConnects = 0, loopMaxGap = 0, lastDropReason = 0;
 
@@ -173,11 +175,12 @@ void sendTelemetry() {
   int len = snprintf(j, sizeof(j),
     "{\"uptime\":%lu,\"heap\":%u,\"heapMin\":%u,\"heapBlock\":%u,\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ip\":\"%s\","
     "\"txPower\":%.2f,\"cpuMHz\":%lu,\"reset\":\"%s\",\"wifiDrops\":%lu,\"lastDropReason\":%lu,\"serverConnects\":%lu,"
-    "\"loopMaxGapMs\":%lu,\"micDropped\":%lu,\"micBufFreeMin\":%u,\"playUnderruns\":%lu,\"otaTrial\":%s,\"battMv\":%d,\"batt\":%d}",
+    "\"loopMaxGapMs\":%lu,\"micDropped\":%lu,\"micBufFreeMin\":%u,\"playUnderruns\":%lu,\"otaTrial\":%s,\"battMv\":%d,\"batt\":%d,\"opusMaxUs\":%lu}",
     millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), WiFi.RSSI(), WiFi.channel(),
     WiFi.BSSIDstr().c_str(), WiFi.localIP().toString().c_str(), WiFi.getTxPower() / 4.0, getCpuFrequencyMhz(),
     r >= 0 && r < 11 ? reasons[r] : "other", wifiDrops, lastDropReason, serverConnects,
-    loopMaxGap, (uint32_t)micDropped, micFreeMin == SIZE_MAX ? 32768u : (unsigned)micFreeMin, (uint32_t)playUnderruns, otaTrial ? "true" : "false", mv, batteryPercent(mv));
+    loopMaxGap, (uint32_t)micDropped, micFreeMin == SIZE_MAX ? 32768u : (unsigned)micFreeMin, (uint32_t)playUnderruns, otaTrial ? "true" : "false", mv, batteryPercent(mv), opusMaxUs);
+  opusMaxUs = 0;
   loopMaxGap = 0;
   micFreeMin = SIZE_MAX;
   uint8_t h[3] = {10, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
@@ -240,27 +243,80 @@ uint32_t statRead = 0, statSent = 0, statMaxWrite = 0, statLoops = 0, statT = 0;
 
 int upIndex = 0;                          // ADPCM step carried from one microphone block to the next
 
+// Opus works on 20 ms frames (320 samples), the microphone hands over 256 at a time: samples wait here.
+// Frame 11 = 1 byte level (RMS / 32, for the meter on the server) + one Opus packet.
+OpusEncoder *opusEnc = nullptr;
+const int OPUS_FRAME = RATE / 50;
+int16_t opusAcc[OPUS_FRAME];
+int opusFill = 0;
+
+void opusBegin() {
+  if (!MIC_OPUS) return;
+  int err;
+  opusEnc = opus_encoder_create(RATE, 1, OPUS_APPLICATION_VOIP, &err);
+  if (err != OPUS_OK) { opusEnc = nullptr; Serial.printf("Opus off: error %d\n", err); return; }
+  opus_encoder_ctl(opusEnc, OPUS_SET_BITRATE(OPUS_BITRATE));
+  opus_encoder_ctl(opusEnc, OPUS_SET_COMPLEXITY(OPUS_COMPLEXITY));
+  opus_encoder_ctl(opusEnc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+  opus_encoder_ctl(opusEnc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+  opus_encoder_ctl(opusEnc, OPUS_SET_VBR(1));
+}
+
+void opusRestart() {                      // every recording is a new stream: no state left from the last one
+  opusFill = 0;
+  if (opusEnc) opus_encoder_ctl(opusEnc, OPUS_RESET_STATE);
+}
+
+void writeAll(const uint8_t *b, size_t total) {
+  size_t sent = 0;
+  uint32_t t0 = micros();
+  while (sent < total && client.connected()) sent += client.write(b + sent, total - sent);
+  uint32_t dt = micros() - t0;
+  if (dt > statMaxWrite) statMaxWrite = dt;
+}
+
+void sendOpus(const int16_t *pcm, int n) {
+  static uint8_t f[4 + 160];
+  while (n > 0) {
+    int k = min(n, OPUS_FRAME - opusFill);
+    memcpy(opusAcc + opusFill, pcm, k * sizeof(int16_t));
+    opusFill += k, pcm += k, n -= k;
+    if (opusFill < OPUS_FRAME) break;
+    opusFill = 0;
+    uint32_t t0 = micros();
+    int len = opus_encode(opusEnc, opusAcc, OPUS_FRAME, f + 4, sizeof(f) - 4);
+    uint32_t dt = micros() - t0;
+    if (dt > opusMaxUs) opusMaxUs = dt;
+    if (len <= 0) continue;
+    uint64_t sq = 0;
+    for (int i = 0; i < OPUS_FRAME; i++) sq += (int32_t)opusAcc[i] * opusAcc[i];
+    f[0] = 11;
+    f[1] = (len + 1) & 0xFF;
+    f[2] = (len + 1) >> 8;
+    f[3] = min(255, (int)sqrtf((float)(sq / OPUS_FRAME)) / 32);
+    writeAll(f, 4 + len);
+  }
+}
+
 void sendAudioFrame(int n) {              // n samples are already in frame+3
   static uint8_t enc[4 + 128];
   int16_t *pcm = (int16_t *)(frame + 3);
+  statSent += n;
+  sentSincePress += n;
+  if (opusEnc) { sendOpus(pcm, n); return; }
   if (n & 1) pcm[n] = pcm[n - 1], n++;
   uint16_t bytes = adpcmEncodeBlock(pcm, n, enc, upIndex);
   memcpy(frame + 3, enc, bytes);
   frame[0] = 1;
   frame[1] = bytes & 0xFF;
   frame[2] = bytes >> 8;
-  size_t total = 3 + bytes, sent = 0;
-  uint32_t t0 = micros();
-  while (sent < total && client.connected()) sent += client.write(frame + sent, total - sent);
-  uint32_t dt = micros() - t0;
-  if (dt > statMaxWrite) statMaxWrite = dt;
-  statSent += n;
-  sentSincePress += n;
+  writeAll(frame, 3 + bytes);
 }
 
 void sendPreroll() {                       // oldest sample first
   int count = ringFull ? PREROLL : ringPos;
   int start = ringFull ? ringPos : 0;
+  opusRestart();
   int16_t *pcm = (int16_t *)(frame + 3);
   for (int i = 0; i < count; i += 256) {
     int n = min(256, count - i);
@@ -424,7 +480,7 @@ bool connectServer() {
   setsockopt(client.fd(), IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
   uint8_t hdr[42] = {'M', 'I', 'C', '2'};          // with a password the header is MIC3 + the password padded to 32 bytes
   uint32_t rate = RATE;
-  uint16_t bits = 4;                               // 4 = IMA ADPCM both ways (server/adpcm.go)
+  uint16_t bits = opusEnc ? 5 : 4;                 // 4 = IMA ADPCM both ways (server/adpcm.go); 5 = Opus from the microphone, ADPCM to the speaker
   memcpy(hdr + 4, &rate, 4);
   memcpy(hdr + 8, &bits, 2);
   size_t hdrLen = 10;
@@ -743,6 +799,7 @@ void setup() {
     if (choice >= 1 && choice <= 4) playSound(100 + choice, 1.0f);
   }
   loadConfig();
+  opusBegin();
   analogSetPinAttenuation(PIN_BATT, ADC_11db);
   uint32_t held = millis();                         // both buttons held for 3 s at power-on: Wi-Fi setup from a phone
   while (!digitalRead(PIN_BTN_REC) && !digitalRead(PIN_BTN_PLAY) && millis() - held < 3000) delay(10);

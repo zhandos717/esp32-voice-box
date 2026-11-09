@@ -28,4 +28,5 @@ jobs:
       - run: |
           arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core install esp32:esp32@3.3.8 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-      - run: arduino-cli compile --fqbn esp32:esp32:esp32 firmware/mic_stream
+      - run: sh scripts/get-libs.sh
+      - run: arduino-cli compile --fqbn esp32:esp32:esp32 --libraries firmware/libraries firmware/mic_stream

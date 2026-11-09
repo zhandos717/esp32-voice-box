@@ -36,6 +36,7 @@ type server struct {
 	connected               bool
 	peer                    string
 	rate                    uint32
+	opus, recOpus           bool           // the board sends the microphone in Opus; the running recording holds Opus packets
 	adpcm                   bool           // the connected board speaks IMA ADPCM (a quarter of the PCM traffic)
 	tele                    map[string]any // last telemetry frame of the board
 	teleAt, connectedAt     time.Time
