@@ -9,5 +9,7 @@ const int PIN_AMP_SD = 23;                                   // MAX98357A SD: LO
 const int PIN_BATT = 34;                                     // 18650 through a 100k/100k divider; ADC1 only, ADC2 stops working with Wi-Fi on
 const float BATT_DIVIDER = 2.0f;
 const int RATE = 16000;
+const bool MIC_OPUS = true;                                  // microphone in Opus (16 kbit/s) instead of IMA ADPCM (64 kbit/s)
+const int OPUS_BITRATE = 16000, OPUS_COMPLEXITY = 2;         // complexity 0..10: CPU time against quality; see opusMaxUs in the telemetry
 const float MIC_HIGHPASS_HZ = 120;                           // cuts the microphone's DC offset and hum before ADPCM
 const float PLAY_VOLUME = 1.0f;                              // software volume of the speaker, 0..1

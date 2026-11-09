@@ -69,6 +69,23 @@ func (s *server) onAudio(b []byte) {
 	}
 }
 
+// onOpus stores one Opus packet (frame 11: level byte + packet) of 20 ms.
+func (s *server) onOpus(b []byte) {
+	if len(b) < 2 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastAudio = time.Now()
+	s.level = int(b[0]) * 32
+	// counted by packets, not by the clock: a board sending faster than real time cannot grow the file past maxRecording
+	if s.recording && s.raw != nil && s.recOpus && s.recSamples < int(maxRecording.Seconds())*int(s.rate) {
+		s.raw.Write(binary.LittleEndian.AppendUint16(nil, uint16(len(b)-1)))
+		s.raw.Write(b[1:])
+		s.recSamples += int(s.rate) / 50
+	}
+}
+
 func (s *server) startRecording() string {
 	s.mu.Lock()
 	if !s.connected {
@@ -86,7 +103,7 @@ func (s *server) startRecording() string {
 		return err.Error()
 	}
 	s.raw, s.rawPath, s.recording, s.started = f, path, true, time.Now()
-	s.recSamples, s.releasedAt = 0, 0
+	s.recSamples, s.releasedAt, s.recOpus = 0, 0, s.opus
 	started := s.started
 	s.mu.Unlock()
 	s.send([]byte{'R'})
@@ -127,13 +144,25 @@ func (s *server) finishRecording() string {
 		return ""
 	}
 	s.recording = false
-	raw, path, rate, releasedAt := s.raw, s.rawPath, s.rate, s.releasedAt
+	raw, path, rate, releasedAt, isOpus := s.raw, s.rawPath, s.rate, s.releasedAt, s.recOpus
 	s.raw = nil
 	s.mu.Unlock()
 	raw.Close()
 	s.send([]byte{'S'})
 	data, err := os.ReadFile(path)
 	os.Remove(path)
+	if err == nil && isOpus {
+		var ogg []byte
+		if ogg, err = opusToOgg(data, rate); err == nil {
+			data, err = decodeToPCM(ogg)
+		}
+		if limit := int(maxRecording.Seconds()) * int(rate) * 2; len(data) > limit { // a packet may hold up to 120 ms
+			data = data[:limit]
+		}
+		if err != nil {
+			log.Println("Opus recording lost:", err)
+		}
+	}
 	if err != nil || len(data) < int(rate)/5*2 {
 		log.Println("recording too short, dropped")
 		return ""
@@ -250,17 +279,19 @@ func (s *server) handleConn(c net.Conn) {
 		log.Println("rejected", c.RemoteAddr(), "(sample rate", rate, "Hz)")
 		return
 	}
-	adpcm := binary.LittleEndian.Uint16(hdr[8:10]) == 4 // the board sends and takes IMA ADPCM
+	bits := binary.LittleEndian.Uint16(hdr[8:10])
+	adpcm := bits == 4 || bits == 5 // the board takes IMA ADPCM; 4: it also sends ADPCM, 5: it sends Opus
+	isOpus := bits == 5
 	s.mu.Lock()
 	if s.conn != nil {
 		s.conn.Close() // a new connection replaces the old one
 	}
-	s.conn, s.connected, s.peer, s.rate, s.adpcm = c, true, c.RemoteAddr().String(), rate, adpcm
+	s.conn, s.connected, s.peer, s.rate, s.adpcm, s.opus = c, true, c.RemoteAddr().String(), rate, adpcm, isOpus
 	s.btnRec, s.btnNext = false, false // a new connection starts with released buttons
 	s.connectedAt, s.tele = time.Now(), nil
 	s.connects++
 	s.mu.Unlock()
-	log.Println("ESP32 connected", c.RemoteAddr(), rate, "Hz", map[bool]string{true: "ADPCM", false: "PCM"}[adpcm])
+	log.Println("ESP32 connected", c.RemoteAddr(), rate, "Hz", map[bool]string{true: "ADPCM", false: "PCM"}[adpcm], map[bool]string{true: "+ Opus mic", false: ""}[isOpus])
 	if s.tg != nil {
 		s.tg.boardOnline()
 	}
@@ -303,6 +334,8 @@ func (s *server) handleConn(c net.Conn) {
 				payload = adpcmDecode(payload)
 			}
 			s.onAudio(payload)
+		case 11:
+			s.onOpus(payload)
 		case 2: // record button pressed: hold to record
 			s.mu.Lock()
 			s.btnRec = true

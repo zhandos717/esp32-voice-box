@@ -6,5 +6,6 @@ if (-not (Test-Path $Cli)) { $Cli = (Get-Command arduino-cli -ErrorAction Stop).
 $sketch = Join-Path $PSScriptRoot '..\firmware\mic_stream'
 $build = Join-Path $PSScriptRoot '..\firmware\build'
 $fqbn = 'esp32:esp32:esp32'
-& $Cli compile --fqbn $fqbn --output-dir $build $sketch
+& (Join-Path $PSScriptRoot 'get-libs.ps1')
+& $Cli compile --fqbn $fqbn --libraries (Join-Path $PSScriptRoot '..\firmware\libraries') --output-dir $build $sketch
 if ($LASTEXITCODE -eq 0) { & $Cli upload -p $Port --fqbn $fqbn --input-dir $build $sketch }
