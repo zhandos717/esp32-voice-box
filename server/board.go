@@ -201,6 +201,25 @@ func (s *server) playMsg(pcm []byte) []byte {
 	return append(msg, body...)
 }
 
+// checkBattery warns the chat once when the box runs low; -1 means no battery divider is fitted.
+func (s *server) checkBattery(t map[string]any) {
+	pct, ok := t["batt"].(float64)
+	if !ok || pct < 0 {
+		return
+	}
+	s.mu.Lock()
+	warn := pct <= 15 && !s.lowBattery
+	if warn {
+		s.lowBattery = true
+	} else if pct >= 30 {
+		s.lowBattery = false
+	}
+	s.mu.Unlock()
+	if warn && s.tg != nil {
+		s.tg.notify(fmt.Sprintf("🪫 Коробка разряжается: %d%%. Поставьте на зарядку.", int(pct)))
+	}
+}
+
 func (s *server) handleConn(c net.Conn) {
 	defer c.Close()
 	if tc, ok := c.(*net.TCPConn); ok { // keepalive: a connection the router has forgotten is noticed in about 30 s
@@ -347,6 +366,7 @@ func (s *server) handleConn(c net.Conn) {
 				s.mu.Lock()
 				s.tele, s.teleAt = t, time.Now()
 				s.mu.Unlock()
+				s.checkBattery(t)
 			}
 		case 9: // "I am alive" while the board is busy (long playback, update); reading it renews the deadline
 		case 6: // the board has played the new-message chime

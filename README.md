@@ -24,6 +24,7 @@ on the box speaker.
 - **Telegram Mini App** control panel: live status over SSE, board telemetry, voices, sounds, firmware update, button and LED test.
   Vue 3 without a build step, in Russian, Kazakh and English.
 - **IMA ADPCM** audio both ways: four times less traffic, works on weak Wi-Fi.
+- **Battery level** of an 18650 cell in the panel, with a Telegram warning at 15 %.
 - **OTA updates** with automatic rollback if the new firmware does not reach the server.
 - **3D-printable enclosure** (OpenSCAD and STL) in [hardware/enclosure](hardware/enclosure).
 
@@ -52,7 +53,8 @@ Wiring: [docs/wiring.md](docs/wiring.md) · protocol: [docs/protocol.md](docs/pr
    arduino-cli compile --fqbn esp32:esp32:esp32 firmware/mic_stream
    arduino-cli upload  --fqbn esp32:esp32:esp32 -p <port> firmware/mic_stream
    ```
-2. **Wi-Fi and server address** go to the board over USB (2.4 GHz network):
+2. **Wi-Fi** (2.4 GHz): on first start the box opens a `VoiceBox-XXXX` network. Join it from a phone and the setup page opens
+   by itself. To change the network later, hold both buttons for 3 s while powering on. Over USB works too:
    ```bash
    python tools/set_wifi.py <port> --show
    ```

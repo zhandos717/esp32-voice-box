@@ -45,6 +45,7 @@ type server struct {
 	tailGen                 int // a press or a release cancels the pending end of the previous release
 	recording               bool
 	level                   int
+	lowBattery              bool // the low-battery warning has been sent; cleared once the box is charged again
 	chimePending            bool // a new Telegram message has not been announced by the board yet (it acknowledges with frame 6)
 	testMode                bool // button test: the buttons only light the page, they do not record or play
 	btnRec, btnNext         bool // physical buttons held right now

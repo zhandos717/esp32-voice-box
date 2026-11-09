@@ -10,6 +10,8 @@
 #include <ESP_I2S.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 #include <esp_ota_ops.h>
@@ -166,15 +168,16 @@ void sendTelemetry() {
   if (!client.connected()) return;
   static const char *reasons[] = {"unknown", "power-on", "external", "software", "panic", "int-wdt", "task-wdt", "wdt", "deep-sleep", "brownout", "sdio"};
   int r = esp_reset_reason();
-  char j[480];
+  int mv = batteryMv();
+  char j[520];
   int len = snprintf(j, sizeof(j),
     "{\"uptime\":%lu,\"heap\":%u,\"heapMin\":%u,\"heapBlock\":%u,\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ip\":\"%s\","
     "\"txPower\":%.2f,\"cpuMHz\":%lu,\"reset\":\"%s\",\"wifiDrops\":%lu,\"lastDropReason\":%lu,\"serverConnects\":%lu,"
-    "\"loopMaxGapMs\":%lu,\"micDropped\":%lu,\"micBufFreeMin\":%u,\"playUnderruns\":%lu,\"otaTrial\":%s}",
+    "\"loopMaxGapMs\":%lu,\"micDropped\":%lu,\"micBufFreeMin\":%u,\"playUnderruns\":%lu,\"otaTrial\":%s,\"battMv\":%d,\"batt\":%d}",
     millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), WiFi.RSSI(), WiFi.channel(),
     WiFi.BSSIDstr().c_str(), WiFi.localIP().toString().c_str(), WiFi.getTxPower() / 4.0, getCpuFrequencyMhz(),
     r >= 0 && r < 11 ? reasons[r] : "other", wifiDrops, lastDropReason, serverConnects,
-    loopMaxGap, (uint32_t)micDropped, micFreeMin == SIZE_MAX ? 32768u : (unsigned)micFreeMin, (uint32_t)playUnderruns, otaTrial ? "true" : "false");
+    loopMaxGap, (uint32_t)micDropped, micFreeMin == SIZE_MAX ? 32768u : (unsigned)micFreeMin, (uint32_t)playUnderruns, otaTrial ? "true" : "false", mv, batteryPercent(mv));
   loopMaxGap = 0;
   micFreeMin = SIZE_MAX;
   uint8_t h[3] = {10, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
@@ -300,12 +303,99 @@ void handleSerial() {
   }
 }
 
-bool connectWifi() {
-  if (ssid.length() == 0) {
-    static uint32_t last = 0;
-    if (millis() - last > 3000) { Serial.println("NO WIFI SETTINGS: run set_wifi.py"); last = millis(); }
-    return false;
+// ---------- battery ----------
+
+int batteryMv() {
+  uint32_t sum = 0;
+  for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(PIN_BATT);
+  int mv = sum / 16 * BATT_DIVIDER;
+  return mv > 2800 && mv < 4500 ? mv : -1;          // outside this range the divider is not fitted and the pin floats
+}
+
+int batteryPercent(int mv) {                        // Li-ion discharge curve under a light load
+  static const int pts[][2] = {{4150, 100}, {4000, 85}, {3870, 65}, {3780, 50}, {3700, 35}, {3620, 20}, {3500, 8}, {3300, 0}};
+  if (mv < 0) return -1;
+  if (mv >= pts[0][0]) return 100;
+  for (int i = 1; i < 8; i++)
+    if (mv >= pts[i][0]) return pts[i][1] + (mv - pts[i][0]) * (pts[i - 1][1] - pts[i][1]) / (pts[i - 1][0] - pts[i][0]);
+  return 0;
+}
+
+// ---------- Wi-Fi setup from a phone ----------
+// The box opens its own network "VoiceBox-XXXX"; the phone shows the setup page by itself (captive portal).
+// Starts when no network is saved or when both buttons are held at power-on.
+
+String htmlEscape(const String &v) {
+  String o;
+  for (char c : v) {
+    if (c == '<') o += "&lt;"; else if (c == '>') o += "&gt;"; else if (c == '&') o += "&amp;"; else if (c == '"') o += "&quot;"; else o += c;
   }
+  return o;
+}
+
+void setupPortal() {
+  char name[20];
+  uint64_t mac = ESP.getEfuseMac();
+  snprintf(name, sizeof(name), "VoiceBox-%02X%02X", (uint8_t)(mac >> 32), (uint8_t)(mac >> 40));
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(name);
+  int found = WiFi.scanNetworks();
+  DNSServer dns;
+  dns.start(53, "*", WiFi.softAPIP());
+  WebServer web(80);
+  Serial.printf("setup mode: join Wi-Fi '%s' and open http://%s\n", name, WiFi.softAPIP().toString().c_str());
+  web.on("/", HTTP_GET, [&]() {
+    String opts;
+    for (int i = 0; i < found; i++) {
+      String n = htmlEscape(WiFi.SSID(i));
+      if (n.length() && opts.indexOf(">" + n + "<") < 0) opts += "<option>" + n + "</option>";
+    }
+    String h = F("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>VoiceBox</title>"
+      "<style>body{font:17px system-ui;margin:0;padding:20px;max-width:420px}label{display:block;margin:14px 0 4px;color:#555}"
+      "input{width:100%;box-sizing:border-box;font:inherit;padding:10px;border:1px solid #bbb;border-radius:8px}"
+      "button{margin-top:20px;width:100%;padding:14px;font:inherit;font-weight:600;border:0;border-radius:8px;background:#0b7a6b;color:#fff}"
+      "small{color:#777}</style><h2>Wi-Fi коробки</h2><form method=post action=/save>"
+      "<label>Сеть Wi-Fi (2,4 ГГц) · Желі</label><input name=ssid list=n required value='");
+    h += htmlEscape(ssid) + "'><datalist id=n>" + opts + "</datalist>";
+    h += F("<label>Пароль · Құпиясөз</label><input name=pass type=password><small>пусто — оставить прежний</small>"
+      "<details><summary style='margin-top:16px'>Сервер</summary><label>Адрес</label><input name=host value='");
+    h += htmlEscape(host) + "'><label>Порт</label><input name=port inputmode=numeric value='" + String(port) + "'>";
+    h += F("<label>Пароль сервера</label><input name=token type=password><small>пусто — оставить прежний</small></details>"
+      "<button>Сохранить · Сақтау</button></form>");
+    web.send(200, "text/html", h);
+  });
+  web.on("/save", HTTP_POST, [&]() {
+    prefs.begin("mic", false);
+    prefs.putString("ssid", web.arg("ssid"));
+    if (web.arg("pass").length()) prefs.putString("pass", web.arg("pass"));
+    if (web.arg("host").length()) prefs.putString("host", web.arg("host"));
+    if (web.arg("port").toInt() > 0) prefs.putUShort("port", web.arg("port").toInt());
+    if (web.arg("token").length()) prefs.putString("token", web.arg("token"));
+    prefs.end();
+    web.send(200, "text/html", F("<meta charset=utf-8><meta name=viewport content='width=device-width'><h2 style='font-family:system-ui'>Сохранено, коробка перезапускается ✓</h2>"));
+    delay(1500);
+    ESP.restart();
+  });
+  web.onNotFound([&]() {                            // phones probe their own URLs: send them to the setup page
+    web.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/");
+    web.send(302, "text/plain", "");
+  });
+  web.begin();
+  uint32_t started = millis();
+  while (true) {
+    dns.processNextRequest();
+    web.handleClient();
+    handleSerial();
+    esp_task_wdt_reset();
+    digitalWrite(PIN_LED_BOARD, (millis() / 150) % 8 < 2);   // short double blink: waiting for setup
+    if (ssid.length() && millis() - started > 600000) ESP.restart();   // the saved network may simply have been down
+    delay(2);
+  }
+}
+
+bool connectWifi() {
+  if (ssid.length() == 0) setupPortal();
   WiFi.disconnect(true, true);                      // drop any half-finished attempt, otherwise begin() fails
   delay(200);
   WiFi.mode(WIFI_STA);
@@ -653,6 +743,10 @@ void setup() {
     if (choice >= 1 && choice <= 4) playSound(100 + choice, 1.0f);
   }
   loadConfig();
+  analogSetPinAttenuation(PIN_BATT, ADC_11db);
+  uint32_t held = millis();                         // both buttons held for 3 s at power-on: Wi-Fi setup from a phone
+  while (!digitalRead(PIN_BTN_REC) && !digitalRead(PIN_BTN_PLAY) && millis() - held < 3000) delay(10);
+  bool wantSetup = millis() - held >= 3000;
   esp_task_wdt_config_t wdt = {.timeout_ms = 30000, .idle_core_mask = 0, .trigger_panic = true};   // a hung loop reboots the board
   if (esp_task_wdt_reconfigure(&wdt) != ESP_OK) esp_task_wdt_init(&wdt);
   esp_task_wdt_add(NULL);
@@ -664,6 +758,7 @@ void setup() {
     lastDropReason = info.wifi_sta_disconnected.reason;
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   Serial.printf("mic_stream ready, network '%s'\n", ssid.c_str());
+  if (wantSetup) setupPortal();
 }
 
 void loop() {
