@@ -71,7 +71,7 @@ func (s *server) onAudio(b []byte) {
 
 // onOpus stores one Opus packet (frame 11: level byte + packet) of 20 ms.
 func (s *server) onOpus(b []byte) {
-	if len(b) < 2 {
+	if len(b) < 2 || len(b)-1 > 1275 { // 1275 bytes is the largest packet Opus can make
 		return
 	}
 	s.mu.Lock()
@@ -156,7 +156,7 @@ func (s *server) finishRecording() string {
 		if ogg, err = opusToOgg(data, rate); err == nil {
 			data, err = decodeToPCM(ogg)
 		}
-		if limit := int(maxRecording.Seconds()) * int(rate) * 2; len(data) > limit { // a packet may hold up to 120 ms
+		if limit := int(maxRecording.Seconds()) * 16000 * 2; len(data) > limit { // decodeToPCM gives 16 kHz; a packet may hold up to 120 ms
 			data = data[:limit]
 		}
 		if err != nil {
