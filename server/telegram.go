@@ -224,7 +224,7 @@ func decodeToPCM(data []byte) ([]byte, error) {
 	if ff == "" {
 		return nil, errors.New("нужен ffmpeg для голосовых Telegram (положите его в папку ffmpeg рядом с программой)")
 	}
-	cmd := exec.Command(ff, "-v", "error", "-i", "pipe:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1")
+	cmd := exec.Command(ff, "-v", "error", "-i", "pipe:0", "-t", strconv.Itoa(int(maxRecording.Seconds())), "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1")
 	cmd.Stdin = bytes.NewReader(data)
 	var out bytes.Buffer
 	cmd.Stdout = &out
