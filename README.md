@@ -1,7 +1,7 @@
 # ESP32 Voice Box
 
 [![CI](https://github.com/zhandos717/esp32-voice-box/actions/workflows/ci.yml/badge.svg)](https://github.com/zhandos717/esp32-voice-box/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
 **English** · [Русский](README.ru.md)
 
@@ -86,4 +86,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.
 
 ## License
 
-[MIT](LICENSE). Bundled third-party code: [THIRD_PARTY.md](THIRD_PARTY.md).
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal, hobby, research and educational use. Commercial use (selling devices, paid hosting, subscriptions) needs a separate license — contact the author. Versions released before this change remain under MIT. Bundled third-party code: [THIRD_PARTY.md](THIRD_PARTY.md).
