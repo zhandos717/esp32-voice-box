@@ -63,7 +63,7 @@ func (s *server) onAudio(b []byte) {
 	defer s.mu.Unlock()
 	s.lastAudio = time.Now()
 	s.level = lv
-	if s.recording && s.raw != nil {
+	if s.recording && s.raw != nil && s.recSamples < int(maxRecording.Seconds())*int(s.rate) {
 		s.raw.Write(b)
 		s.recSamples += len(b) / 2
 	}

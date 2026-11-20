@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -116,7 +117,7 @@ func sameOrigin(r *http.Request, site string) bool {
 func (s *server) withAuth(next http.Handler) http.Handler {
 	site := env("MIC_WEB_URL", "")
 	if site == "" {
-		return next
+		return localOnly(next)
 	}
 	if s.tg == nil {
 		log.Println("web: MIC_WEB_URL is set but Telegram is not configured, the page is closed")
@@ -168,4 +169,31 @@ func (t *telegram) setMenuButton() {
 	if err != nil {
 		log.Println("telegram: menu button:", err)
 	}
+}
+
+// localOnly keeps the open local page reachable only as localhost: a foreign Host header means DNS rebinding,
+// and a write with a foreign Origin means a cross-site request from another tab.
+func localOnly(next http.Handler) http.Handler {
+	lan := env("MIC_WEB_ALLOW_LAN", "") == "1"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		loopback := host == "localhost" || host == "127.0.0.1" || host == "::1"
+		if !loopback && !lan {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if o := r.Header.Get("Origin"); o != "" {
+				u, err := url.Parse(o)
+				if err != nil || u.Host != r.Host {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
